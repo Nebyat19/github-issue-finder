@@ -46,6 +46,9 @@ export async function PATCH(
       where: { id: userId },
       data: { isBanned: true, isApproved: false },
     });
+    if (!updatedUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
 
     return NextResponse.json(
       {

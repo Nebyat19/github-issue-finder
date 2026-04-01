@@ -18,7 +18,10 @@ export async function verifyPassword(
 }
 
 export function createToken(userId: string, email: string): string {
-  return jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  const signOptions: jwt.SignOptions = {
+    expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  };
+  return jwt.sign({ userId, email }, JWT_SECRET, signOptions);
 }
 
 export function verifyToken(token: string): { userId: string; email: string } | null {

@@ -52,6 +52,9 @@ export default function AdminPage() {
   const [newKeyToken, setNewKeyToken] = useState('');
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [editingTokenValue, setEditingTokenValue] = useState('');
+  const [adminSection, setAdminSection] = useState<
+    'keys' | 'approved' | 'pending' | 'banned'
+  >('keys');
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const isAddKeyDisabled = !newKeyToken.trim();
@@ -363,7 +366,7 @@ export default function AdminPage() {
     <div className="app-shell">
       {/* Header */}
       <header className="app-header">
-        <div className="app-container py-6 flex justify-between items-center">
+        <div className="mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground flex items-center gap-2">
               <Shield className="h-5 w-5 text-primary" />
@@ -380,7 +383,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main className="app-container py-8">
+      <main className="mx-auto w-full px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           <Card className="section-card p-4">
             <p className="text-xs text-muted-foreground">Pending approvals</p>
@@ -418,7 +421,49 @@ export default function AdminPage() {
             {error}
           </div>
         )}
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6 items-start">
+          <aside className="section-card p-3 lg:sticky lg:top-4">
+            <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Admin Sections
+            </p>
+            <div className="space-y-1">
+              <Button
+                type="button"
+                variant={adminSection === 'keys' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setAdminSection('keys')}
+              >
+                API Keys
+              </Button>
+              <Button
+                type="button"
+                variant={adminSection === 'approved' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setAdminSection('approved')}
+              >
+                Approved Users
+              </Button>
+              <Button
+                type="button"
+                variant={adminSection === 'pending' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setAdminSection('pending')}
+              >
+                Pending User Approvals
+              </Button>
+              <Button
+                type="button"
+                variant={adminSection === 'banned' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setAdminSection('banned')}
+              >
+                Banned Users
+              </Button>
+            </div>
+          </aside>
+          <div>
         {/* Pending Users Section */}
+        {adminSection === 'pending' && (
         <Card className="section-card mb-8">
           <div className="p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4 inline-flex items-center gap-2">
@@ -471,8 +516,10 @@ export default function AdminPage() {
             )}
           </div>
         </Card>
+        )}
 
         {/* Approved Users Section */}
+        {adminSection === 'approved' && (
         <Card className="section-card mb-8">
           <div className="p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4">
@@ -515,7 +562,9 @@ export default function AdminPage() {
             )}
           </div>
         </Card>
+        )}
 
+        {adminSection === 'banned' && (
         <Card className="section-card mb-8">
           <div className="p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4">
@@ -555,8 +604,10 @@ export default function AdminPage() {
             )}
           </div>
         </Card>
+        )}
 
         {/* API Keys Section */}
+        {adminSection === 'keys' && (
         <Card className="section-card">
           <div className="p-6">
             <h2 className="text-lg font-semibold text-foreground mb-4 inline-flex items-center gap-2">
@@ -679,6 +730,9 @@ export default function AdminPage() {
             )}
           </div>
         </Card>
+        )}
+          </div>
+        </div>
       </main>
     </div>
   );

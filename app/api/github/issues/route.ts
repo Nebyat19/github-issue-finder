@@ -51,6 +51,36 @@ interface ProcessedIssue {
   updatedAt: string;
 }
 
+type LinkResult = { prUrl: string; commitHash: string } | null;
+type AppliedLimits = {
+  maxAnalyzeIssues: number;
+  maxIssuePages: number;
+  maxPullPages: number;
+  minCodeFileChanges: number;
+};
+type AnalysisPayload = {
+  success: boolean;
+  count: number;
+  inspectedCount: number;
+  issues: ProcessedIssue[];
+  appliedLimits: AppliedLimits;
+  repoBlacklisted: boolean;
+  warning?: string;
+};
+
+type CacheEntry<T> = {
+  expiresAt: number;
+  value: T;
+};
+
+const RESULT_CACHE_TTL_MS = 5 * 60 * 1000;
+const LINK_CACHE_TTL_MS = 30 * 60 * 1000;
+const FILES_CACHE_TTL_MS = 30 * 60 * 1000;
+
+const analysisCache = new Map<string, CacheEntry<AnalysisPayload>>();
+const linkedPrCache = new Map<string, CacheEntry<LinkResult>>();
+const prFilesCache = new Map<string, CacheEntry<FilesChangedBreakdown>>();
+
 function clampPositiveInt(
   value: unknown,
   fallback: number,
@@ -63,6 +93,47 @@ function clampPositiveInt(
   if (rounded < min) return min;
   if (rounded > max) return max;
   return rounded;
+}
+
+function getCached<T>(map: Map<string, CacheEntry<T>>, key: string): T | null {
+  const hit = map.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    map.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function setCached<T>(
+  map: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+  ttlMs: number
+) {
+  map.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const result: R[] = new Array(items.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      result[index] = await mapper(items[index]);
+    }
+  });
+
+  await Promise.all(workers);
+  return result;
 }
 
 export async function POST(request: NextRequest) {
@@ -91,6 +162,7 @@ export async function POST(request: NextRequest) {
       maxAnalyzeIssues,
       maxIssuePages,
       maxPullPages,
+      minCodeFileChanges,
       forceFetchBlacklistedRepo,
     } = await request.json();
 
@@ -136,11 +208,28 @@ export async function POST(request: NextRequest) {
       1,
       20
     );
+    const effectiveMinCodeFileChanges = clampPositiveInt(
+      minCodeFileChanges,
+      config.github.minCodeFileChanges,
+      0,
+      1000
+    );
     const appliedLimits = {
       maxAnalyzeIssues: effectiveMaxAnalyzeIssues,
       maxIssuePages: effectiveMaxIssuePages,
       maxPullPages: effectiveMaxPullPages,
+      minCodeFileChanges: effectiveMinCodeFileChanges,
     };
+    const analysisCacheKey = JSON.stringify({
+      owner: ownerNorm,
+      repo: repoNorm,
+      appliedLimits,
+      forceFetchBlacklistedRepo: Boolean(forceFetchBlacklistedRepo),
+    });
+    const cachedResponse = getCached(analysisCache, analysisCacheKey);
+    if (cachedResponse) {
+      return NextResponse.json(cachedResponse, { status: 200 });
+    }
 
     const apiKey = await db.apiKey.resolveForGithubRequest(user.userId);
 
@@ -184,76 +273,68 @@ export async function POST(request: NextRequest) {
       .filter((issue) => !issue.pull_request)
       .slice(0, effectiveMaxAnalyzeIssues);
 
-    const processedIssues: ProcessedIssue[] = [];
-    const chunkSize = 5;
+    const processed = await mapWithConcurrency(
+      candidateIssues,
+      14,
+      async (issue): Promise<ProcessedIssue | null> => {
+        const issueBlacklisted = db.blacklist.isIssueBlacklisted(
+          ownerNorm,
+          repoNorm,
+          issue.number
+        );
 
-    for (let i = 0; i < candidateIssues.length; i += chunkSize) {
-      const chunk = candidateIssues.slice(i, i + chunkSize);
-      const chunkResults: Array<ProcessedIssue | null> = await Promise.all(
-        chunk.map(async (issue): Promise<ProcessedIssue | null> => {
-          const issueBlacklisted = db.blacklist.isIssueBlacklisted(
-            ownerNorm,
-            repoNorm,
-            issue.number
-          );
+        const mergedPrMatch = mergedPrReferenceMap.get(issue.number);
+        const linkedResult =
+          mergedPrMatch ??
+          (await checkLinkedPR(githubToken, ownerNorm, repoNorm, issue.number));
 
-          const mergedPrMatch = mergedPrReferenceMap.get(issue.number);
-          const linkedResult =
-            mergedPrMatch ??
-            (await checkLinkedPR(githubToken, ownerNorm, repoNorm, issue.number));
+        if (!linkedResult?.prUrl) {
+          return null;
+        }
 
-          if (!linkedResult?.prUrl) {
-            return null;
-          }
+        const filesChanged = await countChangedFiles(
+          githubToken,
+          ownerNorm,
+          repoNorm,
+          linkedResult.prUrl
+        );
+        if (filesChanged.code < effectiveMinCodeFileChanges) {
+          return null;
+        }
 
-          let filesChanged: FilesChangedBreakdown = {
-            total: 0,
-            code: 0,
-            docs: 0,
-            additions: 0,
-            deletions: 0,
-          };
-          filesChanged = await countChangedFiles(
-            githubToken,
-            ownerNorm,
-            repoNorm,
-            linkedResult.prUrl
-          );
-
-          return {
-            id: issue.id,
-            number: issue.number,
-            title: issue.title,
-            description: issue.body || '',
-            state: issue.state,
-            url: issue.html_url,
-            author: issue.user.login,
-            labels: issue.labels.map((l) => l.name),
-            linkedPR: linkedResult.prUrl,
-            commitHash: linkedResult.commitHash,
-            filesChanged,
-            owner: ownerNorm,
-            repo: repoNorm,
-            isBlacklisted: issueBlacklisted,
-            createdAt: issue.created_at,
-            updatedAt: issue.updated_at,
-          } satisfies ProcessedIssue;
-        })
-      );
-      processedIssues.push(...chunkResults.filter((issue): issue is ProcessedIssue => issue !== null));
-    }
-
-    return NextResponse.json(
-      {
-        success: true,
-        count: processedIssues.length,
-        inspectedCount: candidateIssues.length,
-        issues: processedIssues,
-        appliedLimits,
-        repoBlacklisted,
-      },
-      { status: 200 }
+        return {
+          id: issue.id,
+          number: issue.number,
+          title: issue.title,
+          description: issue.body || '',
+          state: issue.state,
+          url: issue.html_url,
+          author: issue.user.login,
+          labels: issue.labels.map((l) => l.name),
+          linkedPR: linkedResult.prUrl,
+          commitHash: linkedResult.commitHash,
+          filesChanged,
+          owner: ownerNorm,
+          repo: repoNorm,
+          isBlacklisted: issueBlacklisted,
+          createdAt: issue.created_at,
+          updatedAt: issue.updated_at,
+        } satisfies ProcessedIssue;
+      }
     );
+    const processedIssues = processed.filter(
+      (issue): issue is ProcessedIssue => issue !== null
+    );
+    const payload = {
+      success: true,
+      count: processedIssues.length,
+      inspectedCount: candidateIssues.length,
+      issues: processedIssues,
+      appliedLimits,
+      repoBlacklisted,
+    };
+    setCached(analysisCache, analysisCacheKey, payload, RESULT_CACHE_TTL_MS);
+    return NextResponse.json(payload, { status: 200 });
   } catch (error) {
     console.error('GitHub API error:', error);
     return NextResponse.json(
@@ -269,6 +350,10 @@ async function checkLinkedPR(
   repo: string,
   issueNumber: number
 ): Promise<{ prUrl: string; commitHash: string } | null> {
+  const cacheKey = `${owner}/${repo}#${issueNumber}`;
+  const cached = linkedPrCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached && cached.expiresAt <= Date.now()) linkedPrCache.delete(cacheKey);
   try {
     const timelineResponse = await fetch(
       `${config.github.apiBaseUrl}/repos/${owner}/${repo}/issues/${issueNumber}/timeline`,
@@ -294,7 +379,9 @@ async function checkLinkedPR(
       for (const event of timelineEvents) {
         const prFromSource = event.source?.issue?.pull_request?.html_url;
         if (prFromSource) {
-          return { prUrl: prFromSource, commitHash: '' };
+          const resolved = { prUrl: prFromSource, commitHash: '' };
+          setCached(linkedPrCache, cacheKey, resolved, LINK_CACHE_TTL_MS);
+          return resolved;
         }
       }
     }
@@ -328,14 +415,18 @@ async function checkLinkedPR(
           if (prResponse.ok) {
             const prs = await prResponse.json();
             if (prs.length > 0) {
-              return { prUrl: prs[0].html_url, commitHash: sha };
+              const resolved = { prUrl: prs[0].html_url, commitHash: sha };
+              setCached(linkedPrCache, cacheKey, resolved, LINK_CACHE_TTL_MS);
+              return resolved;
             }
           }
         }
       }
     }
+    setCached(linkedPrCache, cacheKey, null, LINK_CACHE_TTL_MS);
     return null;
   } catch {
+    setCached(linkedPrCache, cacheKey, null, LINK_CACHE_TTL_MS);
     return null;
   }
 }
@@ -349,8 +440,8 @@ async function getMergedPrReferenceMap(
   const issueToPr = new Map<number, { prUrl: string; commitHash: string }>();
 
   try {
-    const prs: GitHubPullRequest[] = [];
-    for (let page = 1; page <= maxPullPages; page += 1) {
+    const pages = Array.from({ length: maxPullPages }, (_, i) => i + 1);
+    const pageResults = await mapWithConcurrency(pages, 6, async (page) => {
       const response = await fetch(
         `${config.github.apiBaseUrl}/repos/${owner}/${repo}/pulls?state=closed&per_page=100&page=${page}`,
         {
@@ -360,13 +451,11 @@ async function getMergedPrReferenceMap(
           },
         }
       );
-      if (!response.ok) break;
-
+      if (!response.ok) return [] as GitHubPullRequest[];
       const pagePrs = (await response.json()) as GitHubPullRequest[];
-      if (!Array.isArray(pagePrs) || pagePrs.length === 0) break;
-      prs.push(...pagePrs);
-      if (pagePrs.length < 100) break;
-    }
+      return Array.isArray(pagePrs) ? pagePrs : [];
+    });
+    const prs: GitHubPullRequest[] = pageResults.flat();
     const closingPattern =
       /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:(?:https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/)|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#)|#)(\d+)\b/gi;
 
@@ -398,9 +487,8 @@ async function fetchClosedIssues(
   perPage: number,
   maxPages: number
 ): Promise<GitHubIssue[]> {
-  const issues: GitHubIssue[] = [];
-
-  for (let page = 1; page <= maxPages; page += 1) {
+  const pages = Array.from({ length: maxPages }, (_, i) => i + 1);
+  const pageResults = await mapWithConcurrency(pages, 6, async (page) => {
     const issuesUrl = `${config.github.apiBaseUrl}/repos/${owner}/${repo}/issues?state=closed&per_page=${perPage}&page=${page}`;
     const issuesResponse = await fetch(issuesUrl, {
       headers: {
@@ -408,23 +496,16 @@ async function fetchClosedIssues(
         Accept: config.github.acceptHeader,
       },
     });
-
-    if (!issuesResponse.ok) {
-      break;
-    }
-
+    if (!issuesResponse.ok) return [] as GitHubIssue[];
     const pageIssues = (await issuesResponse.json()) as GitHubIssue[];
-    if (!Array.isArray(pageIssues) || pageIssues.length === 0) {
-      break;
-    }
-
-    issues.push(...pageIssues);
-    if (pageIssues.length < perPage) {
-      break;
-    }
-  }
-
-  return issues;
+    return Array.isArray(pageIssues) ? pageIssues : [];
+  });
+  const flattened = pageResults.flat();
+  flattened.sort(
+    (a, b) =>
+      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  );
+  return flattened;
 }
 
 async function countChangedFiles(
@@ -433,8 +514,12 @@ async function countChangedFiles(
   repo: string,
   prUrl: string
 ): Promise<FilesChangedBreakdown> {
+  const prNumber = prUrl.split('/').pop();
+  const cacheKey = `${owner}/${repo}#${prNumber}`;
+  const cached = getCached(prFilesCache, cacheKey);
+  if (cached) return cached;
+
   try {
-    const prNumber = prUrl.split('/').pop();
     const url = `${config.github.apiBaseUrl}/repos/${owner}/${repo}/pulls/${prNumber}/files`;
     const response = await fetch(url, {
       headers: {
@@ -444,7 +529,9 @@ async function countChangedFiles(
     });
 
     if (!response.ok) {
-      return { total: 0, code: 0, docs: 0, additions: 0, deletions: 0 };
+      const empty = { total: 0, code: 0, docs: 0, additions: 0, deletions: 0 };
+      setCached(prFilesCache, cacheKey, empty, FILES_CACHE_TTL_MS);
+      return empty;
     }
 
     const files: { filename: string; additions: number; deletions: number }[] =
@@ -460,8 +547,12 @@ async function countChangedFiles(
     const additions = codeFiles.reduce((sum, file) => sum + (file.additions || 0), 0);
     const deletions = codeFiles.reduce((sum, file) => sum + (file.deletions || 0), 0);
 
-    return { total, code, docs, additions, deletions };
+    const summary = { total, code, docs, additions, deletions };
+    setCached(prFilesCache, cacheKey, summary, FILES_CACHE_TTL_MS);
+    return summary;
   } catch {
-    return { total: 0, code: 0, docs: 0, additions: 0, deletions: 0 };
+    const empty = { total: 0, code: 0, docs: 0, additions: 0, deletions: 0 };
+    setCached(prFilesCache, cacheKey, empty, FILES_CACHE_TTL_MS);
+    return empty;
   }
 }

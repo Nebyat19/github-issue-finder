@@ -17,7 +17,7 @@ import {
   ShieldAlert,
   Star,
 } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -131,12 +131,14 @@ export default function DashboardPage() {
   const [maxAnalyzeIssues, setMaxAnalyzeIssues] = useState('30');
   const [maxIssuePages, setMaxIssuePages] = useState('3');
   const [maxPullPages, setMaxPullPages] = useState('3');
+  const [minCodeFileChanges, setMinCodeFileChanges] = useState('4');
   const [finderMeta, setFinderMeta] = useState<{
     warning?: string;
     appliedLimits?: {
       maxAnalyzeIssues: number;
       maxIssuePages: number;
       maxPullPages: number;
+      minCodeFileChanges: number;
     };
   } | null>(null);
   const [hasFetchedFinder, setHasFetchedFinder] = useState(false);
@@ -165,15 +167,22 @@ export default function DashboardPage() {
     const maxAnalyze = parseFinderInt(maxAnalyzeIssues, 1, 500);
     const issuePages = parseFinderInt(maxIssuePages, 1, 20);
     const pullPages = parseFinderInt(maxPullPages, 1, 20);
-    if (maxAnalyze === null || issuePages === null || pullPages === null) {
+    const minCodeFiles = parseFinderInt(minCodeFileChanges, 0, 1000);
+    if (
+      maxAnalyze === null ||
+      issuePages === null ||
+      pullPages === null ||
+      minCodeFiles === null
+    ) {
       return null;
     }
     return {
       maxAnalyzeIssues: maxAnalyze,
       maxIssuePages: issuePages,
       maxPullPages: pullPages,
+      minCodeFileChanges: minCodeFiles,
     };
-  }, [maxAnalyzeIssues, maxIssuePages, maxPullPages]);
+  }, [maxAnalyzeIssues, maxIssuePages, maxPullPages, minCodeFileChanges]);
   const isFinderDisabled =
     finderLoading || !owner.trim() || !repo.trim() || finderScanLimits === null;
   const isLookupDisabled = lookupLoading || !issueUrl.trim();
@@ -410,6 +419,7 @@ export default function DashboardPage() {
           maxAnalyzeIssues: number;
           maxIssuePages: number;
           maxPullPages: number;
+          minCodeFileChanges: number;
         };
       };
 
@@ -709,7 +719,7 @@ export default function DashboardPage() {
     <div className="app-shell">
       {/* Header */}
       <header className="app-header">
-        <div className="app-container py-6 flex justify-between items-center">
+        <div className="mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground inline-flex items-center gap-2">
               <LayoutGrid className="h-5 w-5 text-primary" />
@@ -741,7 +751,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="app-container py-8">
+      <main className="mx-auto w-full px-4 py-8 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           <Card className="section-card p-4">
             <p className="text-xs text-muted-foreground">Loaded Issues</p>
@@ -767,27 +777,53 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid w-full max-w-3xl grid-cols-2 md:grid-cols-4">
-            <TabsTrigger value="finder" className="inline-flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              Issue Finder
-            </TabsTrigger>
-            <TabsTrigger value="lookup" className="inline-flex items-center gap-2">
-              <GitPullRequest className="h-4 w-4" />
-              Issue Lookup
-            </TabsTrigger>
-            <TabsTrigger value="blacklist" className="inline-flex items-center gap-2">
-              <Ban className="h-4 w-4" />
-              Blacklist
-            </TabsTrigger>
-            <TabsTrigger value="repo-finder" className="inline-flex items-center gap-2">
-              <Star className="h-4 w-4" />
-              Repo Finder
-            </TabsTrigger>
-          </TabsList>
+        <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)] gap-6 items-start">
+          <aside className="section-card p-3 lg:sticky lg:top-4">
+            <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Navigation
+            </p>
+            <div className="space-y-1">
+              <Button
+                type="button"
+                variant={tab === 'finder' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setTab('finder')}
+              >
+                <Search className="mr-2 h-4 w-4" />
+                Issue Finder
+              </Button>
+              <Button
+                type="button"
+                variant={tab === 'lookup' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setTab('lookup')}
+              >
+                <GitPullRequest className="mr-2 h-4 w-4" />
+                Issue Lookup
+              </Button>
+              <Button
+                type="button"
+                variant={tab === 'blacklist' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setTab('blacklist')}
+              >
+                <Ban className="mr-2 h-4 w-4" />
+                Blacklist
+              </Button>
+              <Button
+                type="button"
+                variant={tab === 'repo-finder' ? 'default' : 'ghost'}
+                className="w-full justify-start"
+                onClick={() => setTab('repo-finder')}
+              >
+                <Star className="mr-2 h-4 w-4" />
+                Repo Finder
+              </Button>
+            </div>
+          </aside>
 
-          <TabsContent value="finder">
+          <Tabs value={tab} onValueChange={setTab}>
+          <TabsContent value="finder" className="mt-0">
             <Card className="section-card mb-8 mt-4">
               <div className="p-6">
                 <h2 className="text-lg font-semibold text-foreground mb-4">Issue Finder</h2>
@@ -817,7 +853,7 @@ export default function DashboardPage() {
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label
                         htmlFor="max-analyze-issues"
@@ -866,17 +902,35 @@ export default function DashboardPage() {
                         onChange={(e) => setMaxPullPages(e.target.value)}
                       />
                     </div>
+                    <div>
+                      <label
+                        htmlFor="min-code-file-changes"
+                        className="block text-sm font-medium text-foreground mb-2"
+                      >
+                        Min code files changed
+                      </label>
+                      <Input
+                        id="min-code-file-changes"
+                        type="number"
+                        min={0}
+                        max={1000}
+                        value={minCodeFileChanges}
+                        onChange={(e) => setMinCodeFileChanges(e.target.value)}
+                      />
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Uses the API key configured by admin to fetch closed issues and metadata.
                     Adjust how many closed issues and PR pages are scanned before &quot;Find Issues&quot;
-                    (defaults match server env when unchanged).
+                    (defaults match server env when unchanged). Min code files changed
+                    filters by code files only, not total or docs files.
                   </p>
                   {finderMeta?.appliedLimits && (
                     <p className="text-xs text-muted-foreground" aria-live="polite">
                       Applied limits: analyze up to {finderMeta.appliedLimits.maxAnalyzeIssues} issues
                       after fetching {finderMeta.appliedLimits.maxIssuePages} issue page(s) and{' '}
-                      {finderMeta.appliedLimits.maxPullPages} PR page(s).
+                      {finderMeta.appliedLimits.maxPullPages} PR page(s), minimum{' '}
+                      {finderMeta.appliedLimits.minCodeFileChanges} code file change(s).
                     </p>
                   )}
                   {finderMeta?.warning && (
@@ -1233,7 +1287,7 @@ export default function DashboardPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="repo-finder">
+          <TabsContent value="repo-finder" className="mt-0">
             <Card className="section-card mb-8 mt-4">
               <div className="p-6">
                 <h2 className="text-lg font-semibold text-foreground mb-4">Repository Finder</h2>
@@ -1391,7 +1445,7 @@ export default function DashboardPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="lookup">
+          <TabsContent value="lookup" className="mt-0">
             <Card className="section-card mb-8 mt-4">
               <div className="p-6">
                 <h2 className="text-lg font-semibold text-foreground mb-4">Issue Lookup</h2>
@@ -1553,7 +1607,7 @@ export default function DashboardPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="blacklist">
+          <TabsContent value="blacklist" className="mt-0">
             <Card className="section-card mb-8 mt-4">
               <div className="p-6 space-y-6">
                 <div>
@@ -1644,7 +1698,8 @@ export default function DashboardPage() {
               </div>
             </Card>
           </TabsContent>
-        </Tabs>
+          </Tabs>
+        </div>
       </main>
     </div>
   );
