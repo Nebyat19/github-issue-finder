@@ -3,67 +3,72 @@ import bcrypt from "bcryptjs";
 
 
 
-async function main() {
-  // Clean up existing data
-  
-  await prisma.apiKey.deleteMany();
-  await prisma.issue.deleteMany();
-  await prisma.repository.deleteMany();
-  await prisma.user.deleteMany();
-
-  // Create admin user
-  const hashedPassword = await bcrypt.hash("admin123", 10);
-  const adminUser = await prisma.user.create({
-    data: {
-      email: "admin@example.com",
-      passwordHash: hashedPassword,
-      role: "admin",
-      isApproved: true,
-      isBanned: false,
-      isAdmin: true,
-    },
+async function seedDatabase() {
+  // Admin user
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: "admin@example.com" },
   });
 
-  console.log("✓ Admin user created:");
-  console.log(`  Email: admin@example.com`);
-  console.log(`  Password: admin123`);
+  if (!existingAdmin) {
+    const hashedPassword = await bcrypt.hash("admin123", 10);
+    const adminUser = await prisma.user.create({
+      data: {
+        email: "admin@example.com",
+        passwordHash: hashedPassword,
+        role: "admin",
+        isApproved: true,
+        isBanned: false,
+        isAdmin: true,
+      },
+    });
+    console.log("✓ Admin user created: admin@example.com / admin123");
 
-  // Create a test user (inactive, requires approval)
-  const testUser = await prisma.user.create({
-    data: {
-      email: "user@example.com",
-      passwordHash: await bcrypt.hash("user123", 10),
-      role: "user",
-      isApproved: false,
-      isBanned: false,
-      isAdmin: false,
-    },
+    // Admin API key
+    const adminApiKey = await prisma.apiKey.create({
+      data: {
+        userId: adminUser.id,
+        token: `sk-admin-${Math.random().toString(36).substring(7)}`,
+        isActive: true,
+      },
+    });
+    console.log(`✓ Admin API Key: ${adminApiKey.token}`);
+  } else {
+    console.log("✓ Admin user already exists, skipping creation");
+  }
+
+  // Test user
+  const existingTestUser = await prisma.user.findUnique({
+    where: { email: "user@example.com" },
   });
 
-  console.log("\n✓ Test user created (requires admin approval):");
-  console.log(`  Email: user@example.com`);
-  console.log(`  Password: user123`);
+  if (!existingTestUser) {
+    const hashedPassword = await bcrypt.hash("user123", 10);
+    await prisma.user.create({
+      data: {
+        email: "user@example.com",
+        passwordHash: hashedPassword,
+        role: "user",
+        isApproved: false,
+        isBanned: false,
+        isAdmin: false,
+      },
+    });
+    console.log("✓ Test user created: user@example.com / user123");
+  } else {
+    console.log("✓ Test user already exists, skipping creation");
+  }
 
-  // Create API keys for testing
-  const adminApiKey = await prisma.apiKey.create({
-    data: {
-      userId: adminUser.id,
-      token: `sk-admin-${Math.random().toString(36).substring(7)}`,
-      isActive: true,
-    },
-  });
-
-  console.log("\n✓ API keys created:");
-  console.log(`  Admin API Key: ${adminApiKey.token}`);
-
-  console.log("\n✓ Database initialized successfully!");
+  console.log("✓ Database initialized successfully!");
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// Run seed manually if called directly
+if (require.main === module) {
+  seedDatabase()
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
