@@ -5,7 +5,18 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { Ban, Check, Copy } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  Copy,
+  ExternalLink,
+  GitPullRequest,
+  LayoutGrid,
+  LogOut,
+  Search,
+  ShieldAlert,
+  Star,
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
@@ -63,6 +74,20 @@ interface BlacklistEntryRow {
   issueNumber?: number;
   label: string;
   createdAt: string;
+}
+
+interface RepoFinderResult {
+  id: number;
+  fullName: string;
+  url: string;
+  description: string | null;
+  stars: number;
+  forks: number;
+  openIssues: number;
+  language: string | null;
+  defaultBranch: string;
+  updatedAt: string;
+  isBlacklisted: boolean;
 }
 
 /** Match server blacklist rules: repo entry blocks all issues in that repo. */
@@ -128,6 +153,13 @@ export default function DashboardPage() {
   const [blacklistError, setBlacklistError] = useState('');
   const [blacklistBusyId, setBlacklistBusyId] = useState<string | null>(null);
   const [repoBlockedForFetch, setRepoBlockedForFetch] = useState(false);
+  const [repoFinderLanguage, setRepoFinderLanguage] = useState('');
+  const [repoFinderMinStars, setRepoFinderMinStars] = useState('50');
+  const [repoFinderMinIssues, setRepoFinderMinIssues] = useState('10');
+  const [repoFinderResults, setRepoFinderResults] = useState<RepoFinderResult[]>([]);
+  const [repoFinderLoading, setRepoFinderLoading] = useState(false);
+  const [selectedRepoResult, setSelectedRepoResult] = useState<RepoFinderResult | null>(null);
+  const [copiedRepoId, setCopiedRepoId] = useState<number | null>(null);
   const router = useRouter();
   const finderScanLimits = useMemo(() => {
     const maxAnalyze = parseFinderInt(maxAnalyzeIssues, 1, 500);
@@ -145,6 +177,7 @@ export default function DashboardPage() {
   const isFinderDisabled =
     finderLoading || !owner.trim() || !repo.trim() || finderScanLimits === null;
   const isLookupDisabled = lookupLoading || !issueUrl.trim();
+  const isRepoFinderDisabled = repoFinderLoading;
 
   const getAuthToken = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -491,6 +524,59 @@ export default function DashboardPage() {
     }
   };
 
+  const handleRepoFinder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setRepoFinderLoading(true);
+    setSelectedRepoResult(null);
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      const response = await fetch('/api/github/repo-finder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          language: repoFinderLanguage.trim(),
+          minStars: Number(repoFinderMinStars || '0'),
+          minIssues: Number(repoFinderMinIssues || '0'),
+          maxResults: 50,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        error?: string;
+        repositories?: RepoFinderResult[];
+      };
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to find repositories');
+        return;
+      }
+
+      setRepoFinderResults(data.repositories || []);
+    } catch {
+      setError('An error occurred. Please try again.');
+    } finally {
+      setRepoFinderLoading(false);
+    }
+  };
+
+  const handleCopyRepoUrl = async (repoResult: RepoFinderResult) => {
+    try {
+      await navigator.clipboard.writeText(repoResult.url);
+      setCopiedRepoId(repoResult.id);
+      setTimeout(() => setCopiedRepoId(null), 1200);
+    } catch {
+      setCopiedRepoId(null);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     router.replace('/login');
@@ -506,6 +592,18 @@ export default function DashboardPage() {
         issue.author.toLowerCase().includes(term)
     );
   }, [issues, searchTerm]);
+
+  const finderStats = useMemo(() => {
+    const blacklisted = issues.filter((i) => i.isBlacklisted).length;
+    const withPr = issues.filter((i) => Boolean(i.linkedPR)).length;
+    const codeFiles = issues.reduce((sum, i) => sum + i.filesChanged.code, 0);
+    return {
+      total: issues.length,
+      blacklisted,
+      withPr,
+      codeFiles,
+    };
+  }, [issues]);
 
   useEffect(() => {
     const loadSnapshotCommit = async () => {
@@ -613,7 +711,8 @@ export default function DashboardPage() {
       <header className="app-header">
         <div className="app-container py-6 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground inline-flex items-center gap-2">
+              <LayoutGrid className="h-5 w-5 text-primary" />
               GitHub Issues Analyzer
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -622,7 +721,11 @@ export default function DashboardPage() {
           </div>
           <div className="flex gap-4">
             {canViewAdmin && (
-              <Link href="/admin" className="text-muted-foreground hover:text-foreground text-sm">
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <ShieldAlert className="h-4 w-4" />
                 Admin Panel
               </Link>
             )}
@@ -631,6 +734,7 @@ export default function DashboardPage() {
               variant="outline"
               className="border-border text-foreground hover:bg-muted"
             >
+              <LogOut className="mr-2 h-4 w-4" />
               Logout
             </Button>
           </div>
@@ -638,11 +742,49 @@ export default function DashboardPage() {
       </header>
 
       <main className="app-container py-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Loaded Issues</p>
+            <p className="mt-1 text-2xl font-semibold">{finderStats.total}</p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">With Linked PR</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <GitPullRequest className="h-4 w-4 text-primary" />
+              {finderStats.withPr}
+            </p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Blacklisted in Results</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <Ban className="h-4 w-4 text-amber-500" />
+              {finderStats.blacklisted}
+            </p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Code Files Changed</p>
+            <p className="mt-1 text-2xl font-semibold">{finderStats.codeFiles}</p>
+          </Card>
+        </div>
+
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="finder">Issue Finder</TabsTrigger>
-            <TabsTrigger value="lookup">Issue Lookup</TabsTrigger>
-            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+          <TabsList className="grid w-full max-w-3xl grid-cols-2 md:grid-cols-4">
+            <TabsTrigger value="finder" className="inline-flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Issue Finder
+            </TabsTrigger>
+            <TabsTrigger value="lookup" className="inline-flex items-center gap-2">
+              <GitPullRequest className="h-4 w-4" />
+              Issue Lookup
+            </TabsTrigger>
+            <TabsTrigger value="blacklist" className="inline-flex items-center gap-2">
+              <Ban className="h-4 w-4" />
+              Blacklist
+            </TabsTrigger>
+            <TabsTrigger value="repo-finder" className="inline-flex items-center gap-2">
+              <Star className="h-4 w-4" />
+              Repo Finder
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="finder">
@@ -741,13 +883,15 @@ export default function DashboardPage() {
                     <div
                       role="status"
                       aria-live="polite"
-                      className="p-3 bg-amber-500/10 border border-amber-500/40 text-amber-700 dark:text-amber-400 text-sm rounded"
+                      className="status-info flex items-start gap-2"
                     >
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                       {finderMeta.warning}
                     </div>
                   )}
                   {error && (
-                    <div role="alert" aria-live="polite" className="p-3 bg-destructive/10 border border-destructive text-destructive text-sm rounded">
+                    <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                       {error}
                     </div>
                   )}
@@ -951,22 +1095,70 @@ export default function DashboardPage() {
 
                 {selectedIssue && (
                   <Card className="section-card p-6 mt-6">
-                    <h3 className="text-lg font-semibold text-foreground mb-4">
-                      Issue #{selectedIssue.number} Details
-                    </h3>
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <h3 className="text-xl font-semibold tracking-tight text-foreground">
+                          #{selectedIssue.number} {selectedIssue.title}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          by {selectedIssue.author} • {selectedIssue.owner}/{selectedIssue.repo}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIssue(null)}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Close
+                      </button>
+                    </div>
                     {selectedIssue.isBlacklisted && (
                       <p
                         role="status"
-                        className="text-xs text-amber-600 dark:text-amber-400 mb-3 flex items-center gap-2"
+                        className="status-info mb-4 flex items-center gap-2"
                       >
                         <Ban className="h-4 w-4 shrink-0" aria-hidden />
                         This issue or its repository is on your blacklist.
                       </p>
                     )}
-                    <div className="space-y-2 text-sm">
-                      <p><span className="font-medium">Title:</span> {selectedIssue.title}</p>
-                      <p><span className="font-medium">Description:</span> {selectedIssue.description || 'No description'}</p>
-                      <p><span className="font-medium">Merged/Linked Commit Hash:</span> {selectedIssue.commitHash || 'N/A'}</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div className="lg:col-span-2 space-y-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Description</p>
+                          <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                            {selectedIssue.description || 'No description'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Links</p>
+                          <div className="flex flex-wrap gap-4 text-sm">
+                            <a className="text-primary hover:underline" href={selectedIssue.url} target="_blank" rel="noreferrer">
+                              Open Issue
+                            </a>
+                            {selectedIssue.linkedPR ? (
+                              <a className="text-primary hover:underline" href={selectedIssue.linkedPR} target="_blank" rel="noreferrer">
+                                Open PR
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground">No PR linked</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2 text-sm">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Change Summary</p>
+                        <p><span className="font-medium">Total files:</span> {selectedIssue.filesChanged.total}</p>
+                        <p><span className="font-medium">Code:</span> {selectedIssue.filesChanged.code}</p>
+                        <p><span className="font-medium">Docs:</span> {selectedIssue.filesChanged.docs}</p>
+                        <p>
+                          <span className="font-medium">Diff:</span>{' '}
+                          <span className="text-emerald-500">+{selectedIssue.filesChanged.additions}</span>{' '}
+                          <span className="text-rose-500">-{selectedIssue.filesChanged.deletions}</span>
+                        </p>
+                        <p><span className="font-medium">Merge commit:</span> {selectedIssue.commitHash || 'N/A'}</p>
+                      </div>
+                    </div>
+                    <div className="pt-4">
                       <div className="pt-2">
                         <p className="font-medium">Snapshot Commit (closest commit at/before PR merge)</p>
                         <p className="text-muted-foreground break-all">
@@ -1005,31 +1197,7 @@ export default function DashboardPage() {
                           </div>
                         )}
                       </div>
-                      <p><span className="font-medium">Total Files Changed:</span> {selectedIssue.filesChanged.total}</p>
-                      <p><span className="font-medium">Code Changes:</span> {selectedIssue.filesChanged.code}</p>
-                      <p><span className="font-medium">Docs Changes:</span> {selectedIssue.filesChanged.docs}</p>
-                      <p>
-                        <span className="font-medium">Code Diff (+/-):</span>{' '}
-                        <span className="text-emerald-400">+{selectedIssue.filesChanged.additions}</span>{' '}
-                        <span className="text-rose-400">-{selectedIssue.filesChanged.deletions}</span>
-                      </p>
-                      <p>
-                        <span className="font-medium">Issue Link:</span>{' '}
-                        <a className="text-primary hover:underline" href={selectedIssue.url} target="_blank" rel="noreferrer">
-                          Open
-                        </a>
-                      </p>
-                      <p>
-                        <span className="font-medium">PR Link:</span>{' '}
-                        {selectedIssue.linkedPR ? (
-                          <a className="text-primary hover:underline" href={selectedIssue.linkedPR} target="_blank" rel="noreferrer">
-                            Open
-                          </a>
-                        ) : (
-                          'N/A'
-                        )}
-                      </p>
-                      <div className="pt-2">
+                      <div className="pt-3">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -1061,6 +1229,164 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground">
                   No issues were returned for this repository. Try another repo, or verify the configured GitHub token has permission.
                 </p>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="repo-finder">
+            <Card className="section-card mb-8 mt-4">
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-foreground mb-4">Repository Finder</h2>
+                <form onSubmit={handleRepoFinder} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Language
+                      </label>
+                      <Input
+                        placeholder="e.g. TypeScript"
+                        value={repoFinderLanguage}
+                        onChange={(e) => setRepoFinderLanguage(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Min Stars
+                      </label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={repoFinderMinStars}
+                        onChange={(e) => setRepoFinderMinStars(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">
+                        Min Open Issues
+                      </label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={repoFinderMinIssues}
+                        onChange={(e) => setRepoFinderMinIssues(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {error && (
+                    <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      {error}
+                    </div>
+                  )}
+                  <Button type="submit" disabled={isRepoFinderDisabled}>
+                    {repoFinderLoading ? 'Finding Repositories...' : 'Find Repositories'}
+                  </Button>
+                </form>
+              </div>
+            </Card>
+
+            {repoFinderResults.length > 0 && (
+              <Card className="section-card overflow-hidden mb-6">
+                <div className="max-h-[440px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Repository</TableHead>
+                        <TableHead>Language</TableHead>
+                        <TableHead className="text-center">Stars</TableHead>
+                        <TableHead className="text-center">Open Issues</TableHead>
+                        <TableHead className="text-center">BL</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {repoFinderResults.map((repoResult) => (
+                        <TableRow key={repoResult.id}>
+                          <TableCell className="font-medium">{repoResult.fullName}</TableCell>
+                          <TableCell>{repoResult.language || 'N/A'}</TableCell>
+                          <TableCell className="text-center">{repoResult.stars}</TableCell>
+                          <TableCell className="text-center">{repoResult.openIssues}</TableCell>
+                          <TableCell className="text-center">
+                            {repoResult.isBlacklisted ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex text-amber-500">
+                                    <Ban className="h-4 w-4" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>Repository is blacklisted</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => void handleCopyRepoUrl(repoResult)}
+                                  >
+                                    {copiedRepoId === repoResult.id ? (
+                                      <Check className="h-4 w-4" />
+                                    ) : (
+                                      <Copy className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy repository link</TooltipContent>
+                              </Tooltip>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSelectedRepoResult(repoResult)}
+                              >
+                                View Detail
+                              </Button>
+                              <a
+                                href={repoResult.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex"
+                              >
+                                <Button type="button" variant="ghost" size="icon">
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </a>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
+            )}
+
+            {selectedRepoResult && (
+              <Card className="section-card p-6">
+                <h3 className="text-xl font-semibold tracking-tight">{selectedRepoResult.fullName}</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {selectedRepoResult.description || 'No description'}
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-sm">
+                  <p><span className="font-medium">Stars:</span> {selectedRepoResult.stars}</p>
+                  <p><span className="font-medium">Forks:</span> {selectedRepoResult.forks}</p>
+                  <p><span className="font-medium">Open issues:</span> {selectedRepoResult.openIssues}</p>
+                  <p><span className="font-medium">Branch:</span> {selectedRepoResult.defaultBranch}</p>
+                </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <a href={selectedRepoResult.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                    Open on GitHub
+                  </a>
+                  <span className="text-xs text-muted-foreground">
+                    Updated {new Date(selectedRepoResult.updatedAt).toLocaleDateString()}
+                  </span>
+                </div>
               </Card>
             )}
           </TabsContent>
@@ -1105,33 +1431,64 @@ export default function DashboardPage() {
 
             {lookupIssue && (
               <Card className="section-card p-6">
-                <h3 className="text-lg font-semibold text-foreground mb-4">Lookup Result</h3>
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-xl font-semibold tracking-tight text-foreground">
+                      #{lookupIssue.number} {lookupIssue.title}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      by {lookupIssue.author} • {lookupIssue.owner}/{lookupIssue.repo}
+                    </p>
+                  </div>
+                </div>
                 {lookupIssue.isBlacklisted && (
                   <p
                     role="status"
-                    className="text-xs text-amber-600 dark:text-amber-400 mb-3 flex items-center gap-2"
+                    className="status-info mb-4 flex items-center gap-2"
                   >
                     <Ban className="h-4 w-4 shrink-0" aria-hidden />
                     This issue or its repository is on your blacklist.
                   </p>
                 )}
-                <div className="space-y-2 text-sm">
-                  <p><span className="font-medium">Issue:</span> #{lookupIssue.number}</p>
-                  <p><span className="font-medium">Title:</span> {lookupIssue.title}</p>
-                  <p><span className="font-medium">Description:</span> {lookupIssue.description || 'No description'}</p>
-                  <p><span className="font-medium">Author:</span> {lookupIssue.author}</p>
-                  <p><span className="font-medium">Repository:</span> {lookupIssue.owner}/{lookupIssue.repo}</p>
-                  <p><span className="font-medium">Created:</span> {new Date(lookupIssue.createdAt).toLocaleString()}</p>
-                  <p><span className="font-medium">Updated:</span> {new Date(lookupIssue.updatedAt).toLocaleString()}</p>
-                  <p><span className="font-medium">Total Files Changed:</span> {lookupIssue.filesChanged.total}</p>
-                  <p><span className="font-medium">Code Changes:</span> {lookupIssue.filesChanged.code}</p>
-                  <p><span className="font-medium">Docs Changes:</span> {lookupIssue.filesChanged.docs}</p>
-                  <p>
-                    <span className="font-medium">Code Diff (+/-):</span>{' '}
-                    <span className="text-emerald-400">+{lookupIssue.filesChanged.additions}</span>{' '}
-                    <span className="text-rose-400">-{lookupIssue.filesChanged.deletions}</span>
-                  </p>
-                  <p><span className="font-medium">Commit Hash:</span> {lookupIssue.commitHash || 'N/A'}</p>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 space-y-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Description</p>
+                      <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                        {lookupIssue.description || 'No description'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Timeline</p>
+                      <p className="text-sm"><span className="font-medium">Created:</span> {new Date(lookupIssue.createdAt).toLocaleString()}</p>
+                      <p className="text-sm"><span className="font-medium">Updated:</span> {new Date(lookupIssue.updatedAt).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Links</p>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        <a className="text-primary hover:underline" href={lookupIssue.url} target="_blank" rel="noreferrer">Open Issue</a>
+                        {lookupIssue.linkedPR ? (
+                          <a className="text-primary hover:underline" href={lookupIssue.linkedPR} target="_blank" rel="noreferrer">Open PR</a>
+                        ) : (
+                          <span className="text-muted-foreground">No PR linked</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2 text-sm">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Change Summary</p>
+                    <p><span className="font-medium">Total files:</span> {lookupIssue.filesChanged.total}</p>
+                    <p><span className="font-medium">Code:</span> {lookupIssue.filesChanged.code}</p>
+                    <p><span className="font-medium">Docs:</span> {lookupIssue.filesChanged.docs}</p>
+                    <p>
+                      <span className="font-medium">Diff:</span>{' '}
+                      <span className="text-emerald-500">+{lookupIssue.filesChanged.additions}</span>{' '}
+                      <span className="text-rose-500">-{lookupIssue.filesChanged.deletions}</span>
+                    </p>
+                    <p><span className="font-medium">Merge commit:</span> {lookupIssue.commitHash || 'N/A'}</p>
+                  </div>
+                </div>
+                <div className="pt-4">
                   <div className="pt-2">
                     <p className="font-medium">Snapshot Commit (closest commit at/before PR merge)</p>
                     <p className="text-muted-foreground break-all">
@@ -1172,18 +1529,6 @@ export default function DashboardPage() {
                       </div>
                     )}
                   </div>
-                  <p>
-                    <span className="font-medium">Issue Link:</span>{' '}
-                    <a className="text-primary hover:underline" href={lookupIssue.url} target="_blank" rel="noreferrer">Open</a>
-                  </p>
-                  <p>
-                    <span className="font-medium">PR Link:</span>{' '}
-                    {lookupIssue.linkedPR ? (
-                      <a className="text-primary hover:underline" href={lookupIssue.linkedPR} target="_blank" rel="noreferrer">Open</a>
-                    ) : (
-                      'N/A'
-                    )}
-                  </p>
                 </div>
                 <div className="pt-4 flex flex-wrap gap-2">
                   <Tooltip>

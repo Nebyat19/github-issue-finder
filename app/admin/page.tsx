@@ -5,7 +5,16 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { AlertTriangle, ArrowLeft, KeyRound, Shield, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Ban,
+  CheckCircle2,
+  Clock3,
+  KeyRound,
+  Shield,
+  Users,
+} from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -372,6 +381,37 @@ export default function AdminPage() {
       </header>
 
       <main className="app-container py-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Pending approvals</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <Clock3 className="h-4 w-4 text-primary" />
+              {pendingUsers.length}
+            </p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Approved users</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-primary" />
+              {approvedUsers.length}
+            </p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">Banned users</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <Ban className="h-4 w-4 text-amber-500" />
+              {bannedUsers.length}
+            </p>
+          </Card>
+          <Card className="section-card p-4">
+            <p className="text-xs text-muted-foreground">API keys</p>
+            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-primary" />
+              {apiKeys.length}
+            </p>
+          </Card>
+        </div>
+
         {error && (
           <div role="alert" aria-live="polite" className="status-error mb-6 flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
