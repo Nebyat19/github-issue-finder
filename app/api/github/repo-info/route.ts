@@ -14,6 +14,30 @@ interface GitHubRepo {
   default_branch: string;
 }
 
+async function fetchClosedIssuesCount(
+  token: string,
+  owner: string,
+  repo: string
+): Promise<number> {
+  try {
+    const q = encodeURIComponent(`repo:${owner}/${repo} is:issue is:closed`);
+    const response = await fetch(
+      `${config.github.apiBaseUrl}/search/issues?q=${q}&per_page=1`,
+      {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: config.github.acceptHeader,
+        },
+      }
+    );
+    if (!response.ok) return 0;
+    const data = (await response.json()) as { total_count?: number };
+    return typeof data.total_count === 'number' ? data.total_count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const authHeader = request.headers.get('authorization');
@@ -68,6 +92,11 @@ export async function POST(request: NextRequest) {
     }
 
     const repository = (await response.json()) as GitHubRepo;
+    const closedIssues = await fetchClosedIssuesCount(
+      apiKey.token,
+      ownerNorm,
+      repoNorm
+    );
     return NextResponse.json(
       {
         success: true,
@@ -77,7 +106,7 @@ export async function POST(request: NextRequest) {
           description: repository.description,
           stars: repository.stargazers_count,
           forks: repository.forks_count,
-          openIssues: repository.open_issues_count,
+          closedIssues,
           language: repository.language,
           defaultBranch: repository.default_branch,
         },

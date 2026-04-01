@@ -10,14 +10,23 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileCode2,
   GitPullRequest,
   LayoutGrid,
   LogOut,
   Search,
   ShieldAlert,
   Star,
+  Activity,
 } from 'lucide-react';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -61,7 +70,7 @@ interface RepoInfo {
   description: string | null;
   stars: number;
   forks: number;
-  openIssues: number;
+  closedIssues: number;
   language: string | null;
   defaultBranch: string;
 }
@@ -83,12 +92,33 @@ interface RepoFinderResult {
   description: string | null;
   stars: number;
   forks: number;
-  openIssues: number;
+  closedIssues: number;
   language: string | null;
   defaultBranch: string;
   updatedAt: string;
   isBlacklisted: boolean;
 }
+
+const REPO_FINDER_LANGUAGES = [
+  'TypeScript',
+  'JavaScript',
+  'Python',
+  'Java',
+  'Go',
+  'Rust',
+  'C#',
+  'C++',
+  'C',
+  'PHP',
+  'Ruby',
+  'Swift',
+  'Kotlin',
+  'Dart',
+  'Scala',
+  'Shell',
+  'HTML',
+  'CSS',
+];
 
 /** Match server blacklist rules: repo entry blocks all issues in that repo. */
 function issueMatchesBlacklist(
@@ -128,9 +158,9 @@ export default function DashboardPage() {
   const [lookupSnapshotLoading, setLookupSnapshotLoading] = useState(false);
   const [copiedField, setCopiedField] = useState<'hash' | 'checkout' | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
-  const [maxAnalyzeIssues, setMaxAnalyzeIssues] = useState('30');
-  const [maxIssuePages, setMaxIssuePages] = useState('3');
-  const [maxPullPages, setMaxPullPages] = useState('3');
+  const [maxAnalyzeIssues, setMaxAnalyzeIssues] = useState('80');
+  const [maxIssuePages, setMaxIssuePages] = useState('20');
+  const [maxPullPages, setMaxPullPages] = useState('20');
   const [minCodeFileChanges, setMinCodeFileChanges] = useState('4');
   const [finderMeta, setFinderMeta] = useState<{
     warning?: string;
@@ -155,7 +185,7 @@ export default function DashboardPage() {
   const [blacklistError, setBlacklistError] = useState('');
   const [blacklistBusyId, setBlacklistBusyId] = useState<string | null>(null);
   const [repoBlockedForFetch, setRepoBlockedForFetch] = useState(false);
-  const [repoFinderLanguage, setRepoFinderLanguage] = useState('');
+  const [repoFinderLanguage, setRepoFinderLanguage] = useState('Any');
   const [repoFinderMinStars, setRepoFinderMinStars] = useState('50');
   const [repoFinderMinIssues, setRepoFinderMinIssues] = useState('10');
   const [repoFinderResults, setRepoFinderResults] = useState<RepoFinderResult[]>([]);
@@ -552,9 +582,9 @@ export default function DashboardPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          language: repoFinderLanguage.trim(),
+          language: repoFinderLanguage === 'Any' ? '' : repoFinderLanguage.trim(),
           minStars: Number(repoFinderMinStars || '0'),
-          minIssues: Number(repoFinderMinIssues || '0'),
+          minClosedIssues: Number(repoFinderMinIssues || '0'),
           maxResults: 50,
         }),
       });
@@ -719,114 +749,141 @@ export default function DashboardPage() {
     <div className="app-shell">
       {/* Header */}
       <header className="app-header">
-        <div className="mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground inline-flex items-center gap-2">
-              <LayoutGrid className="h-5 w-5 text-primary" />
-              GitHub Issues Analyzer
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Analyze closed issues linked to code-heavy PRs
-            </p>
+        <div className="mx-auto w-full px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg, oklch(0.55 0.22 275), oklch(0.6 0.2 290))' }}>
+              <LayoutGrid className="h-4.5 w-4.5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight text-foreground">
+                GitHub Issues Analyzer
+              </h1>
+              <p className="text-xs text-muted-foreground -mt-0.5">
+                Analyze closed issues linked to code-heavy PRs
+              </p>
+            </div>
           </div>
-          <div className="flex gap-4">
+          <div className="flex items-center gap-3">
             {canViewAdmin && (
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
               >
                 <ShieldAlert className="h-4 w-4" />
-                Admin Panel
+                Admin
               </Link>
             )}
             <Button
               onClick={handleLogout}
               variant="outline"
-              className="border-border text-foreground hover:bg-muted"
+              size="sm"
+              className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/50"
             >
-              <LogOut className="mr-2 h-4 w-4" />
+              <LogOut className="mr-1.5 h-3.5 w-3.5" />
               Logout
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-          <Card className="section-card p-4">
-            <p className="text-xs text-muted-foreground">Loaded Issues</p>
-            <p className="mt-1 text-2xl font-semibold">{finderStats.total}</p>
-          </Card>
-          <Card className="section-card p-4">
-            <p className="text-xs text-muted-foreground">With Linked PR</p>
-            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
-              <GitPullRequest className="h-4 w-4 text-primary" />
-              {finderStats.withPr}
-            </p>
-          </Card>
-          <Card className="section-card p-4">
-            <p className="text-xs text-muted-foreground">Blacklisted in Results</p>
-            <p className="mt-1 text-2xl font-semibold inline-flex items-center gap-2">
-              <Ban className="h-4 w-4 text-amber-500" />
-              {finderStats.blacklisted}
-            </p>
-          </Card>
-          <Card className="section-card p-4">
-            <p className="text-xs text-muted-foreground">Code Files Changed</p>
-            <p className="mt-1 text-2xl font-semibold">{finderStats.codeFiles}</p>
-          </Card>
+          <div className="stat-card animate-fade-in" style={{ '--stat-accent': 'oklch(0.65 0.2 275)', '--stat-icon-bg': 'oklch(0.65 0.2 275 / 0.12)' } as React.CSSProperties}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Loaded Issues</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{finderStats.total}</p>
+              </div>
+              <div className="stat-icon">
+                <Activity className="h-5 w-5" style={{ color: 'oklch(0.65 0.2 275)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="stat-card animate-fade-in-delay-1" style={{ '--stat-accent': 'oklch(0.6 0.18 200)', '--stat-icon-bg': 'oklch(0.6 0.18 200 / 0.12)' } as React.CSSProperties}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">With Linked PR</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{finderStats.withPr}</p>
+              </div>
+              <div className="stat-icon">
+                <GitPullRequest className="h-5 w-5" style={{ color: 'oklch(0.6 0.18 200)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="stat-card animate-fade-in-delay-2" style={{ '--stat-accent': 'oklch(0.7 0.16 65)', '--stat-icon-bg': 'oklch(0.7 0.16 65 / 0.12)' } as React.CSSProperties}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Blacklisted</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{finderStats.blacklisted}</p>
+              </div>
+              <div className="stat-icon">
+                <Ban className="h-5 w-5" style={{ color: 'oklch(0.7 0.16 65)' }} />
+              </div>
+            </div>
+          </div>
+          <div className="stat-card animate-fade-in-delay-3" style={{ '--stat-accent': 'oklch(0.65 0.17 160)', '--stat-icon-bg': 'oklch(0.65 0.17 160 / 0.12)' } as React.CSSProperties}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Code Files Changed</p>
+                <p className="mt-2 text-3xl font-bold text-foreground">{finderStats.codeFiles}</p>
+              </div>
+              <div className="stat-icon">
+                <FileCode2 className="h-5 w-5" style={{ color: 'oklch(0.65 0.17 160)' }} />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[250px_minmax(0,1fr)] gap-6 items-start">
-          <aside className="section-card bg-sidebar/85 p-3 lg:sticky lg:top-4">
-            <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] gap-6 items-start">
+          <aside className="section-card p-3 lg:sticky lg:top-20">
+            <p className="px-3 pb-3 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
               Navigation
             </p>
-            <div className="space-y-1">
-              <Button
+            <div className="sidebar-nav">
+              <button
                 type="button"
-                variant={tab === 'finder' ? 'default' : 'ghost'}
-                className="w-full justify-start rounded-xl"
+                className="sidebar-nav-btn"
+                data-active={tab === 'finder'}
                 onClick={() => setTab('finder')}
               >
-                <Search className="mr-2 h-4 w-4" />
+                <Search className="h-4 w-4" />
                 Issue Finder
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant={tab === 'lookup' ? 'default' : 'ghost'}
-                className="w-full justify-start rounded-xl"
+                className="sidebar-nav-btn"
+                data-active={tab === 'lookup'}
                 onClick={() => setTab('lookup')}
               >
-                <GitPullRequest className="mr-2 h-4 w-4" />
+                <GitPullRequest className="h-4 w-4" />
                 Issue Lookup
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant={tab === 'blacklist' ? 'default' : 'ghost'}
-                className="w-full justify-start rounded-xl"
+                className="sidebar-nav-btn"
+                data-active={tab === 'blacklist'}
                 onClick={() => setTab('blacklist')}
               >
-                <Ban className="mr-2 h-4 w-4" />
+                <Ban className="h-4 w-4" />
                 Blacklist
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant={tab === 'repo-finder' ? 'default' : 'ghost'}
-                className="w-full justify-start rounded-xl"
+                className="sidebar-nav-btn"
+                data-active={tab === 'repo-finder'}
                 onClick={() => setTab('repo-finder')}
               >
-                <Star className="mr-2 h-4 w-4" />
+                <Star className="h-4 w-4" />
                 Repo Finder
-              </Button>
+              </button>
             </div>
           </aside>
 
           <Tabs value={tab} onValueChange={setTab}>
           <TabsContent value="finder" className="mt-0">
-            <Card className="section-card mb-8 mt-4">
+            <div className="section-card mb-6 mt-4 animate-fade-in">
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Issue Finder</h2>
+                <h2 className="text-base font-semibold text-foreground mb-4">Issue Finder</h2>
                 <form onSubmit={handleFetchIssues} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -966,13 +1023,13 @@ export default function DashboardPage() {
                       </Button>
                     </div>
                   )}
-                  <Button
+                  <button
                     type="submit"
                     disabled={isFinderDisabled}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    className="btn-primary-gradient"
                   >
                     {finderLoading ? 'Fetching...' : 'Find Issues'}
-                  </Button>
+                  </button>
                   <Button
                     type="button"
                     variant="outline"
@@ -993,27 +1050,60 @@ export default function DashboardPage() {
                   </Button>
                 </form>
               </div>
-            </Card>
+            </div>
 
             {repoInfo && (
-              <Card className="section-card p-6 mb-6">
-                <h3 className="text-lg font-semibold text-foreground mb-3">Repository Info</h3>
-                <div className="space-y-1 text-sm">
-                  <p><span className="font-medium">Name:</span> {repoInfo.fullName}</p>
-                  <p>
-                    <span className="font-medium">URL:</span>{' '}
-                    <a href={repoInfo.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                      Open Repo
-                    </a>
-                  </p>
-                  <p><span className="font-medium">Description:</span> {repoInfo.description || 'N/A'}</p>
-                  <p><span className="font-medium">Stars:</span> {repoInfo.stars}</p>
-                  <p><span className="font-medium">Forks:</span> {repoInfo.forks}</p>
-                  <p><span className="font-medium">Open Issues:</span> {repoInfo.openIssues}</p>
-                  <p><span className="font-medium">Language:</span> {repoInfo.language || 'N/A'}</p>
-                  <p><span className="font-medium">Default Branch:</span> {repoInfo.defaultBranch}</p>
+              <div className="section-card p-6 mb-6 animate-fade-in">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Repository Info</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Snapshot of repository metadata
+                    </p>
+                  </div>
+                  <a
+                    href={repoInfo.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center rounded-lg border border-border/80 bg-card px-3 py-1.5 text-xs font-medium text-primary hover:bg-muted"
+                  >
+                    Open Repo
+                  </a>
                 </div>
-              </Card>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Name</p>
+                    <p className="mt-1 text-sm font-medium text-foreground break-all">{repoInfo.fullName}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Language</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{repoInfo.language || 'N/A'}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Default Branch</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{repoInfo.defaultBranch}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Closed Issues</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{repoInfo.closedIssues.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Stars</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{repoInfo.stars.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3">
+                    <p className="text-xs text-muted-foreground">Forks</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{repoInfo.forks.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-muted/35 p-3 md:col-span-2">
+                    <p className="text-xs text-muted-foreground">Description</p>
+                    <p className="mt-1 text-sm text-foreground leading-relaxed">
+                      {repoInfo.description || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
 
             {issues.length > 0 && (
@@ -1028,22 +1118,22 @@ export default function DashboardPage() {
                   />
                 </div>
 
-                <Card className="section-card overflow-hidden">
+                <div className="pro-table-wrapper animate-fade-in">
                   <div className="max-h-[420px] overflow-y-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-b border-border">
-                        <TableHead className="text-foreground">Issue #</TableHead>
-                        <TableHead className="text-foreground">Title</TableHead>
-                        <TableHead className="text-foreground">Issue Link</TableHead>
-                        <TableHead className="text-foreground text-center">BL</TableHead>
-                        <TableHead className="text-foreground">PR Link</TableHead>
-                        <TableHead className="text-foreground text-center">Total Files</TableHead>
-                        <TableHead className="text-foreground text-center">Code</TableHead>
-                        <TableHead className="text-foreground text-center">Docs</TableHead>
-                        <TableHead className="text-foreground text-center">+ / - (Code)</TableHead>
-                        <TableHead className="text-foreground">Blacklist</TableHead>
-                        <TableHead className="text-foreground">Action</TableHead>
+                      <TableRow>
+                        <TableHead>Issue #</TableHead>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Issue</TableHead>
+                        <TableHead className="text-center">BL</TableHead>
+                        <TableHead>PR</TableHead>
+                        <TableHead className="text-center">Files</TableHead>
+                        <TableHead className="text-center">Code</TableHead>
+                        <TableHead className="text-center">Docs</TableHead>
+                        <TableHead className="text-center">+/-</TableHead>
+                        <TableHead className="text-center">Block</TableHead>
+                        <TableHead>Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1098,12 +1188,12 @@ export default function DashboardPage() {
                           </TableCell>
                           <TableCell className="text-foreground text-center">{issue.filesChanged.total}</TableCell>
                           <TableCell className="text-center">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
+                            <span className="badge-code">
                               {issue.filesChanged.code}
                             </span>
                           </TableCell>
                           <TableCell className="text-center">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
+                            <span className="badge-docs">
                               {issue.filesChanged.docs}
                             </span>
                           </TableCell>
@@ -1145,10 +1235,10 @@ export default function DashboardPage() {
                     </TableBody>
                   </Table>
                   </div>
-                </Card>
+                </div>
 
                 {selectedIssue && (
-                  <Card className="section-card p-6 mt-6">
+                  <div className="detail-panel mt-6">
                     <div className="flex items-start justify-between gap-4 mb-4">
                       <div>
                         <h3 className="text-xl font-semibold tracking-tight text-foreground">
@@ -1273,35 +1363,46 @@ export default function DashboardPage() {
                         </Tooltip>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 )}
               </>
             )}
 
             {hasFetchedFinder && !finderLoading && issues.length === 0 && (
-              <Card className="section-card p-6">
+              <div className="section-card p-6 animate-fade-in">
                 <p className="text-sm text-muted-foreground">
                   No issues were returned for this repository. Try another repo, or verify the configured GitHub token has permission.
                 </p>
-              </Card>
+              </div>
             )}
           </TabsContent>
 
           <TabsContent value="repo-finder" className="mt-0">
-            <Card className="section-card mb-8 mt-4">
+            <div className="section-card mb-6 mt-4 animate-fade-in">
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Repository Finder</h2>
+                <h2 className="text-base font-semibold text-foreground mb-4">Repository Finder</h2>
                 <form onSubmit={handleRepoFinder} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
                         Language
                       </label>
-                      <Input
-                        placeholder="e.g. TypeScript"
+                      <Select
                         value={repoFinderLanguage}
-                        onChange={(e) => setRepoFinderLanguage(e.target.value)}
-                      />
+                        onValueChange={setRepoFinderLanguage}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select a language" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Any">Any</SelectItem>
+                          {REPO_FINDER_LANGUAGES.map((language) => (
+                            <SelectItem key={language} value={language}>
+                              {language}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
@@ -1316,7 +1417,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-foreground mb-2">
-                        Min Open Issues
+                        Min Closed Issues
                       </label>
                       <Input
                         type="number"
@@ -1332,15 +1433,15 @@ export default function DashboardPage() {
                       {error}
                     </div>
                   )}
-                  <Button type="submit" disabled={isRepoFinderDisabled}>
+                  <button type="submit" disabled={isRepoFinderDisabled} className="btn-primary-gradient">
                     {repoFinderLoading ? 'Finding Repositories...' : 'Find Repositories'}
-                  </Button>
+                  </button>
                 </form>
               </div>
-            </Card>
+            </div>
 
             {repoFinderResults.length > 0 && (
-              <Card className="section-card overflow-hidden mb-6">
+              <div className="pro-table-wrapper mb-6 animate-fade-in">
                 <div className="max-h-[440px] overflow-y-auto">
                   <Table>
                     <TableHeader>
@@ -1348,7 +1449,7 @@ export default function DashboardPage() {
                         <TableHead>Repository</TableHead>
                         <TableHead>Language</TableHead>
                         <TableHead className="text-center">Stars</TableHead>
-                        <TableHead className="text-center">Open Issues</TableHead>
+                        <TableHead className="text-center">Closed Issues</TableHead>
                         <TableHead className="text-center">BL</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
@@ -1359,7 +1460,7 @@ export default function DashboardPage() {
                           <TableCell className="font-medium">{repoResult.fullName}</TableCell>
                           <TableCell>{repoResult.language || 'N/A'}</TableCell>
                           <TableCell className="text-center">{repoResult.stars}</TableCell>
-                          <TableCell className="text-center">{repoResult.openIssues}</TableCell>
+                          <TableCell className="text-center">{repoResult.closedIssues}</TableCell>
                           <TableCell className="text-center">
                             {repoResult.isBlacklisted ? (
                               <Tooltip>
@@ -1418,11 +1519,11 @@ export default function DashboardPage() {
                     </TableBody>
                   </Table>
                 </div>
-              </Card>
+              </div>
             )}
 
             {selectedRepoResult && (
-              <Card className="section-card p-6">
+              <div className="detail-panel">
                 <h3 className="text-xl font-semibold tracking-tight">{selectedRepoResult.fullName}</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   {selectedRepoResult.description || 'No description'}
@@ -1430,7 +1531,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-sm">
                   <p><span className="font-medium">Stars:</span> {selectedRepoResult.stars}</p>
                   <p><span className="font-medium">Forks:</span> {selectedRepoResult.forks}</p>
-                  <p><span className="font-medium">Open issues:</span> {selectedRepoResult.openIssues}</p>
+                  <p><span className="font-medium">Closed issues:</span> {selectedRepoResult.closedIssues}</p>
                   <p><span className="font-medium">Branch:</span> {selectedRepoResult.defaultBranch}</p>
                 </div>
                 <div className="mt-4 flex items-center gap-3">
@@ -1441,14 +1542,14 @@ export default function DashboardPage() {
                     Updated {new Date(selectedRepoResult.updatedAt).toLocaleDateString()}
                   </span>
                 </div>
-              </Card>
+              </div>
             )}
           </TabsContent>
 
           <TabsContent value="lookup" className="mt-0">
-            <Card className="section-card mb-8 mt-4">
+            <div className="section-card mb-6 mt-4 animate-fade-in">
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Issue Lookup</h2>
+                <h2 className="text-base font-semibold text-foreground mb-4">Issue Lookup</h2>
                 <form onSubmit={handleIssueLookup} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -1468,23 +1569,24 @@ export default function DashboardPage() {
                     Uses the API key configured by admin.
                   </p>
                   {error && (
-                    <div role="alert" aria-live="polite" className="p-3 bg-destructive/10 border border-destructive text-destructive text-sm rounded">
+                    <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                       {error}
                     </div>
                   )}
-                  <Button
+                  <button
                     type="submit"
                     disabled={isLookupDisabled}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    className="btn-primary-gradient"
                   >
                     {lookupLoading ? 'Looking up...' : 'Lookup Issue'}
-                  </Button>
+                  </button>
                 </form>
               </div>
-            </Card>
+            </div>
 
             {lookupIssue && (
-              <Card className="section-card p-6">
+              <div className="detail-panel">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
                     <h3 className="text-xl font-semibold tracking-tight text-foreground">
@@ -1603,15 +1705,15 @@ export default function DashboardPage() {
                     <TooltipContent side="top">Blacklist issue</TooltipContent>
                   </Tooltip>
                 </div>
-              </Card>
+              </div>
             )}
           </TabsContent>
 
           <TabsContent value="blacklist" className="mt-0">
-            <Card className="section-card mb-8 mt-4">
+            <div className="section-card mb-6 mt-4 animate-fade-in">
               <div className="p-6 space-y-6">
                 <div>
-                  <h2 className="text-lg font-semibold text-foreground mb-1">Blacklist</h2>
+                  <h2 className="text-base font-semibold text-foreground mb-1">Blacklist</h2>
                   <p className="text-sm text-muted-foreground">
                     Block repositories or specific issues from Issue Finder, lookup, and repo info.
                     Entries are saved with your app data.
@@ -1619,7 +1721,8 @@ export default function DashboardPage() {
                 </div>
 
                 {blacklistError && (
-                  <div role="alert" className="p-3 bg-destructive/10 border border-destructive text-destructive text-sm rounded">
+                  <div role="alert" className="status-error flex items-start gap-2">
+                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                     {blacklistError}
                   </div>
                 )}
@@ -1660,10 +1763,10 @@ export default function DashboardPage() {
                   {blacklistEntries.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No entries yet.</p>
                   ) : (
-                    <div className="border border-border rounded-md overflow-hidden">
+                    <div className="pro-table-wrapper">
                       <Table>
                         <TableHeader>
-                          <TableRow className="border-b border-border">
+                          <TableRow>
                             <TableHead>Type</TableHead>
                             <TableHead>Target</TableHead>
                             <TableHead className="w-[120px]">Remove</TableHead>
@@ -1671,7 +1774,7 @@ export default function DashboardPage() {
                         </TableHeader>
                         <TableBody>
                           {blacklistEntries.map((row) => (
-                            <TableRow key={row.id} className="border-b border-border">
+                            <TableRow key={row.id}>
                               <TableCell className="capitalize">{row.kind}</TableCell>
                               <TableCell>
                                 <code className="text-xs bg-muted px-2 py-0.5 rounded">{row.label}</code>
@@ -1696,7 +1799,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-            </Card>
+            </div>
           </TabsContent>
           </Tabs>
         </div>

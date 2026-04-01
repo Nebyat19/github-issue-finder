@@ -21,6 +21,51 @@ interface GitHubSearchResponse {
   items: GitHubSearchRepoItem[];
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const result: R[] = new Array(items.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      result[index] = await mapper(items[index]);
+    }
+  });
+
+  await Promise.all(workers);
+  return result;
+}
+
+async function fetchClosedIssuesCount(
+  token: string,
+  fullName: string
+): Promise<number> {
+  try {
+    const q = encodeURIComponent(`repo:${fullName} is:issue is:closed`);
+    const response = await fetch(
+      `${config.github.apiBaseUrl}/search/issues?q=${q}&per_page=1`,
+      {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: config.github.acceptHeader,
+        },
+      }
+    );
+    if (!response.ok) return 0;
+    const data = (await response.json()) as { total_count?: number };
+    return typeof data.total_count === 'number' ? data.total_count : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -54,12 +99,18 @@ export async function POST(request: NextRequest) {
       language?: string;
       minStars?: number;
       minIssues?: number;
+      minClosedIssues?: number;
       maxResults?: number;
     };
 
     const language = String(body.language || '').trim();
     const minStars = clampInt(body.minStars, 50, 0, 1_000_000);
-    const minIssues = clampInt(body.minIssues, 10, 0, 1_000_000);
+    const minClosedIssues = clampInt(
+      body.minClosedIssues ?? body.minIssues,
+      10,
+      0,
+      1_000_000
+    );
     const maxResults = clampInt(body.maxResults, 30, 1, 100);
 
     const qualifiers = [`stars:>=${minStars}`, 'archived:false', 'fork:false'];
@@ -84,9 +135,11 @@ export async function POST(request: NextRequest) {
     }
 
     const data = (await response.json()) as GitHubSearchResponse;
-    const filtered = (data.items || [])
-      .filter((repo) => repo.open_issues_count >= minIssues)
-      .map((repo) => {
+    const enriched = await mapWithConcurrency(
+      data.items || [],
+      8,
+      async (repo) => {
+        const closedIssues = await fetchClosedIssuesCount(apiKey.token, repo.full_name);
         const [owner, name] = repo.full_name.split('/');
         const isBlacklisted =
           !!owner &&
@@ -99,13 +152,15 @@ export async function POST(request: NextRequest) {
           description: repo.description,
           stars: repo.stargazers_count,
           forks: repo.forks_count,
-          openIssues: repo.open_issues_count,
+          closedIssues,
           language: repo.language,
           defaultBranch: repo.default_branch,
           updatedAt: repo.updated_at,
           isBlacklisted,
         };
-      });
+      }
+    );
+    const filtered = enriched.filter((repo) => repo.closedIssues >= minClosedIssues);
 
     return NextResponse.json({
       success: true,
@@ -114,7 +169,7 @@ export async function POST(request: NextRequest) {
       filters: {
         language: language || null,
         minStars,
-        minIssues,
+        minClosedIssues,
         maxResults,
       },
     });

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { CheckCircle2, Eye, EyeOff, Info } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Info, LayoutGrid } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -71,13 +71,21 @@ export default function LoginPage() {
 
   return (
     <div className="app-shell flex items-center justify-center p-4">
-      <Card className="section-card w-full max-w-md border-border/60 bg-card/92">
+      {/* Decorative background orbs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden>
+        <div className="absolute -top-32 -left-32 h-96 w-96 rounded-full" style={{ background: 'radial-gradient(circle, oklch(0.55 0.22 275 / 0.15), transparent 70%)' }} />
+        <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full" style={{ background: 'radial-gradient(circle, oklch(0.5 0.18 290 / 0.12), transparent 70%)' }} />
+      </div>
+      <div className="login-card w-full max-w-md">
         <div className="p-8">
-          <div className="mb-8">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground text-center">
+          <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: 'linear-gradient(135deg, oklch(0.55 0.22 275), oklch(0.6 0.2 290))' }}>
+              <LayoutGrid className="h-6 w-6 text-white" />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
               GitHub Issues Analyzer
             </h1>
-            <p className="text-sm text-muted-foreground text-center mt-2 leading-relaxed">
+            <p className="text-sm text-muted-foreground mt-1.5">
               {isSignup ? 'Create an account' : 'Sign in to your account'}
             </p>
           </div>
@@ -175,13 +183,13 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button
+            <button
               type="submit"
               disabled={isSubmitDisabled}
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="w-full btn-primary-gradient"
             >
               {loading ? 'Loading...' : isSignup ? 'Sign up' : 'Sign in'}
-            </Button>
+            </button>
           </form>
 
           <div className="mt-6 text-center">
@@ -202,7 +210,7 @@ export default function LoginPage() {
             </button>
           </div>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }
