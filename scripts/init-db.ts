@@ -6,14 +6,14 @@ import bcrypt from "bcryptjs";
 async function seedDatabase() {
   // Admin user
   const existingAdmin = await prisma.user.findUnique({
-    where: { email: "admin@example.com" },
+    where: { email: "admin@issue-finder.com" },
   });
 
   if (!existingAdmin) {
-    const hashedPassword = await bcrypt.hash("admin123", 10);
+    const hashedPassword = await bcrypt.hash("admin@123", 10);
     const adminUser = await prisma.user.create({
       data: {
-        email: "admin@example.com",
+        email: "admin@issue-finder.com",
         passwordHash: hashedPassword,
         role: "admin",
         isApproved: true,
@@ -21,7 +21,7 @@ async function seedDatabase() {
         isAdmin: true,
       },
     });
-    console.log("✓ Admin user created: admin@example.com / admin123");
+    console.log("✓ Admin user created: admin@issue-finder.com / admin@123");
 
     // Admin API key
     const adminApiKey = await prisma.apiKey.create({
