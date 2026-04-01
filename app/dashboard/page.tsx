@@ -153,10 +153,29 @@ function parseFinderInt(raw: string, min: number, max: number): number | null {
   return v;
 }
 
+/** Valid github.com URL with owner and repo segment (while typing, this is often null — that is OK). */
+function parseFinderRepoUrl(raw: string): { owner: string; repo: string } | null {
+  const t = raw.trim();
+  if (!t) return null;
+  try {
+    const url = new URL(t.includes('://') ? t : `https://${t}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (host !== 'github.com') return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    const o = (parts[0] || '').trim().toLowerCase();
+    const r = (parts[1] || '').trim().replace(/\.git$/i, '').toLowerCase();
+    if (!o || !r) return null;
+    return { owner: o, repo: r };
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
   const [tab, setTab] = useState('finder');
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
+  const [repoUrlInput, setRepoUrlInput] = useState('');
   const [issueUrl, setIssueUrl] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
   const [lookupIssue, setLookupIssue] = useState<Issue | null>(null);
@@ -229,6 +248,17 @@ export default function DashboardPage() {
     finderLoading || !owner.trim() || !repo.trim() || finderScanLimits === null;
   const isLookupDisabled = lookupLoading || !issueUrl.trim();
   const isRepoFinderDisabled = repoFinderLoading;
+
+  useEffect(() => {
+    const parsed = parseFinderRepoUrl(repoUrlInput);
+    if (parsed) {
+      setOwner(parsed.owner);
+      setRepo(parsed.repo);
+    } else {
+      setOwner('');
+      setRepo('');
+    }
+  }, [repoUrlInput]);
 
   const getAuthToken = (): string | null => {
     if (typeof window === 'undefined') return null;
@@ -341,10 +371,11 @@ export default function DashboardPage() {
   };
 
   const handleBlacklistCurrentRepo = async () => {
-    if (!owner.trim() || !repo.trim()) return;
+    const parsed = parseFinderRepoUrl(repoUrlInput);
+    if (!parsed) return;
     const entries = await postBlacklist({
       kind: 'repo',
-      url: `https://github.com/${owner.trim()}/${repo.trim()}`,
+      url: `https://github.com/${parsed.owner}/${parsed.repo}`,
     });
     if (entries !== false) {
       setManualRepoBlacklist('');
@@ -437,6 +468,14 @@ export default function DashboardPage() {
         return;
       }
 
+      const parsedRepo = parseFinderRepoUrl(repoUrlInput);
+      if (!parsedRepo) {
+        setFinderError(
+          'Enter a valid GitHub repository URL (e.g. https://github.com/owner/repo).'
+        );
+        return;
+      }
+
       const response = await fetch('/api/github/issues', {
         method: 'POST',
         headers: {
@@ -444,8 +483,8 @@ export default function DashboardPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          owner: owner.trim(),
-          repo: repo.trim(),
+          owner: parsedRepo.owner,
+          repo: parsedRepo.repo,
           forceFetchBlacklistedRepo,
           ...finderScanLimits,
         }),
@@ -503,6 +542,14 @@ export default function DashboardPage() {
         return;
       }
 
+      const parsedRepo = parseFinderRepoUrl(repoUrlInput);
+      if (!parsedRepo) {
+        setFinderError(
+          'Enter a valid GitHub repository URL (e.g. https://github.com/owner/repo).'
+        );
+        return;
+      }
+
       const response = await fetch('/api/github/repo-info', {
         method: 'POST',
         headers: {
@@ -510,8 +557,8 @@ export default function DashboardPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          owner: owner.trim(),
-          repo: repo.trim(),
+          owner: parsedRepo.owner,
+          repo: parsedRepo.repo,
         }),
       });
       const data = (await response.json()) as { error?: string; repository?: RepoInfo };
@@ -944,19 +991,8 @@ export default function DashboardPage() {
                       <Input
                         id="repo-url"
                         placeholder="https://github.com/vercel/next.js"
-                        value={owner && repo ? `https://github.com/${owner}/${repo}` : ''}
-                        onChange={(e) => {
-                          const value = e.target.value.trim();
-                          try {
-                            const url = new URL(value);
-                            const parts = url.pathname.split('/').filter(Boolean);
-                            setOwner(parts[0] || '');
-                            setRepo(parts[1] || '');
-                          } catch {
-                            setOwner('');
-                            setRepo('');
-                          }
-                        }}
+                        value={repoUrlInput}
+                        onChange={(e) => setRepoUrlInput(e.target.value)}
                         required
                       />
                     </div>
