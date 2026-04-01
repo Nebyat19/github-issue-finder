@@ -18,8 +18,8 @@ const env = { ...process.env }
     }
 
     // prepare database
-    await exec('npx prisma migrate deploy')
-    await exec('npx next build --experimental-build-mode generate')
+    // Pin Prisma CLI to app version to avoid runtime installs of Prisma 7.
+    await exec('npx --yes prisma@5.9.1 migrate deploy')
   }
 
   // launch application

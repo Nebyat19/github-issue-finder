@@ -71,7 +71,7 @@ export default function LoginPage() {
 
   return (
     <div className="app-shell flex items-center justify-center p-4">
-      <Card className="section-card w-full max-w-md">
+      <Card className="section-card w-full max-w-md border-border/60 bg-card/92">
         <div className="p-8">
           <div className="mb-8">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground text-center">

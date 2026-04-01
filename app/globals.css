@@ -4,39 +4,39 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.52 0.12 252);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --background: oklch(0.955 0.02 292);
+  --foreground: oklch(0.26 0.03 285);
+  --card: oklch(0.985 0.012 292);
+  --card-foreground: oklch(0.26 0.03 285);
+  --popover: oklch(0.992 0.006 290);
+  --popover-foreground: oklch(0.26 0.03 285);
+  --primary: oklch(0.62 0.17 290);
+  --primary-foreground: oklch(0.99 0.004 300);
+  --secondary: oklch(0.94 0.02 292);
+  --secondary-foreground: oklch(0.34 0.03 286);
+  --muted: oklch(0.93 0.02 292);
+  --muted-foreground: oklch(0.52 0.03 285);
+  --accent: oklch(0.93 0.03 292);
+  --accent-foreground: oklch(0.32 0.03 286);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.52 0.12 252);
+  --border: oklch(0.87 0.03 292);
+  --input: oklch(0.87 0.03 292);
+  --ring: oklch(0.62 0.17 290);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.9rem;
+  --sidebar: oklch(0.93 0.03 292);
+  --sidebar-foreground: oklch(0.28 0.03 285);
+  --sidebar-primary: oklch(0.62 0.17 290);
+  --sidebar-primary-foreground: oklch(0.99 0.004 300);
+  --sidebar-accent: oklch(0.9 0.04 292);
+  --sidebar-accent-foreground: oklch(0.28 0.03 285);
+  --sidebar-border: oklch(0.84 0.04 292);
+  --sidebar-ring: oklch(0.62 0.17 290);
 }
 
 .dark {
@@ -121,17 +121,31 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    background-image: none;
+    background-image: radial-gradient(
+        circle at 12% 8%,
+        color-mix(in oklch, var(--primary) 14%, transparent),
+        transparent 45%
+      ),
+      radial-gradient(
+        circle at 88% 4%,
+        color-mix(in oklch, var(--accent) 22%, transparent),
+        transparent 42%
+      ),
+      linear-gradient(
+        180deg,
+        color-mix(in oklch, var(--background) 86%, white 14%) 0%,
+        var(--background) 100%
+      );
   }
 }
 
 @layer components {
   .app-shell {
-    @apply min-h-screen bg-background;
+    @apply min-h-screen bg-background text-foreground;
   }
 
   .app-header {
-    @apply border-b border-border/70 bg-card/80 backdrop-blur supports-backdrop-filter:bg-card/70;
+    @apply border-b border-border/70 bg-card/75 backdrop-blur-lg supports-backdrop-filter:bg-card/70;
   }
 
   .app-container {
@@ -139,18 +153,18 @@
   }
 
   .section-card {
-    @apply rounded-xl border border-border/80 bg-card shadow-sm;
+    @apply rounded-2xl border border-border/75 bg-card/90 shadow-[0_14px_36px_-24px_rgba(89,50,133,0.35)];
   }
 
   .status-error {
-    @apply rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive;
+    @apply rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive;
   }
 
   .status-info {
-    @apply rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-foreground;
+    @apply rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-foreground;
   }
 
   .status-success {
-    @apply rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400;
+    @apply rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400;
   }
 }

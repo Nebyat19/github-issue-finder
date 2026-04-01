@@ -422,7 +422,7 @@ export default function AdminPage() {
           </div>
         )}
         <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6 items-start">
-          <aside className="section-card p-3 lg:sticky lg:top-4">
+          <aside className="section-card bg-sidebar/85 p-3 lg:sticky lg:top-4">
             <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Admin Sections
             </p>
@@ -430,7 +430,7 @@ export default function AdminPage() {
               <Button
                 type="button"
                 variant={adminSection === 'keys' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setAdminSection('keys')}
               >
                 API Keys
@@ -438,7 +438,7 @@ export default function AdminPage() {
               <Button
                 type="button"
                 variant={adminSection === 'approved' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setAdminSection('approved')}
               >
                 Approved Users
@@ -446,7 +446,7 @@ export default function AdminPage() {
               <Button
                 type="button"
                 variant={adminSection === 'pending' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setAdminSection('pending')}
               >
                 Pending User Approvals
@@ -454,7 +454,7 @@ export default function AdminPage() {
               <Button
                 type="button"
                 variant={adminSection === 'banned' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setAdminSection('banned')}
               >
                 Banned Users

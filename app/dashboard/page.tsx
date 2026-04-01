@@ -777,8 +777,8 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)] gap-6 items-start">
-          <aside className="section-card p-3 lg:sticky lg:top-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[250px_minmax(0,1fr)] gap-6 items-start">
+          <aside className="section-card bg-sidebar/85 p-3 lg:sticky lg:top-4">
             <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Navigation
             </p>
@@ -786,7 +786,7 @@ export default function DashboardPage() {
               <Button
                 type="button"
                 variant={tab === 'finder' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setTab('finder')}
               >
                 <Search className="mr-2 h-4 w-4" />
@@ -795,7 +795,7 @@ export default function DashboardPage() {
               <Button
                 type="button"
                 variant={tab === 'lookup' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setTab('lookup')}
               >
                 <GitPullRequest className="mr-2 h-4 w-4" />
@@ -804,7 +804,7 @@ export default function DashboardPage() {
               <Button
                 type="button"
                 variant={tab === 'blacklist' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setTab('blacklist')}
               >
                 <Ban className="mr-2 h-4 w-4" />
@@ -813,7 +813,7 @@ export default function DashboardPage() {
               <Button
                 type="button"
                 variant={tab === 'repo-finder' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start rounded-xl"
                 onClick={() => setTab('repo-finder')}
               >
                 <Star className="mr-2 h-4 w-4" />
