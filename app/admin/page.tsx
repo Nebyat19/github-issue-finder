@@ -626,7 +626,9 @@ export default function AdminPage() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                This token is shared across all users. Tokens are masked in the table.
+                Admin keys are shared with all users for GitHub requests. Add several active keys to
+                spread rate limits: each request picks the next key in round-robin order (one key
+                behaves the same as before). Tokens are masked in the table.
               </p>
               <Button
                 type="submit"

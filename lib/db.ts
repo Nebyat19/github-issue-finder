@@ -56,6 +56,20 @@ interface InMemoryState {
   issues: Map<string, Issue>;
 }
 
+/** In-process round-robin index for GitHub API keys (spreads load when admins add multiple keys). */
+function pickRoundRobinApiKey<T extends { id: string }>(keys: T[]): T | null {
+  if (keys.length === 0) return null;
+  if (keys.length === 1) return keys[0];
+
+  const globalForRR = globalThis as typeof globalThis & {
+    __issueFinderGithubKeyRR?: number;
+  };
+  const n = keys.length;
+  const i = (globalForRR.__issueFinderGithubKeyRR ?? 0) % n;
+  globalForRR.__issueFinderGithubKeyRR = (globalForRR.__issueFinderGithubKeyRR ?? 0) + 1;
+  return keys[i];
+}
+
 const globalDb = globalThis as typeof globalThis & {
   __issueFinderInMemoryDb?: InMemoryState;
   __issueFinderSeedPromise?: Promise<void>;
@@ -239,15 +253,17 @@ export const db = {
         where: {
           isActive: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
       const usable = pool.filter((k) => k.token.trim().length > 0);
 
       const fromAdmin = usable.filter((k) => adminIds.has(k.userId));
-      if (fromAdmin.length > 0) return fromAdmin[0];
+      if (fromAdmin.length > 0) {
+        return pickRoundRobinApiKey(fromAdmin);
+      }
 
       const fromUser = usable.filter((k) => k.userId === requestingUserId);
-      return fromUser[0] ?? null;
+      return pickRoundRobinApiKey(fromUser);
     },
     findMany: async (query?: { where: { userId: string } }) => {
       if (!query?.where.userId) {
