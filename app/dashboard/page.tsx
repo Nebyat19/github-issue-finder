@@ -135,6 +135,15 @@ function issueMatchesBlacklist(
   return false;
 }
 
+function repoMatchesBlacklist(
+  repoRef: Pick<Issue, 'owner' | 'repo'>,
+  entries: BlacklistEntryRow[]
+): boolean {
+  const o = repoRef.owner.trim().toLowerCase();
+  const r = repoRef.repo.trim().toLowerCase().replace(/\.git$/i, '');
+  return entries.some((e) => e.kind === 'repo' && e.owner === o && e.repo === r);
+}
+
 function parseFinderInt(raw: string, min: number, max: number): number | null {
   if (!raw.trim()) return null;
   const n = Number(raw);
@@ -156,6 +165,7 @@ export default function DashboardPage() {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [lookupSnapshotCommitHash, setLookupSnapshotCommitHash] = useState<string | null>(null);
   const [lookupSnapshotLoading, setLookupSnapshotLoading] = useState(false);
+  const [lookupRepoInfoLoading, setLookupRepoInfoLoading] = useState(false);
   const [copiedField, setCopiedField] = useState<'hash' | 'checkout' | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [maxAnalyzeIssues, setMaxAnalyzeIssues] = useState('80');
@@ -644,6 +654,10 @@ export default function DashboardPage() {
       codeFiles,
     };
   }, [issues]);
+  const lookupRepoBlacklisted = useMemo(() => {
+    if (!lookupIssue) return false;
+    return repoMatchesBlacklist(lookupIssue, blacklistEntries);
+  }, [lookupIssue, blacklistEntries]);
 
   useEffect(() => {
     const loadSnapshotCommit = async () => {
@@ -738,6 +752,41 @@ export default function DashboardPage() {
       setTimeout(() => setCopiedField(null), 1500);
     } catch {
       setCopiedField(null);
+    }
+  };
+
+  const handleLookupShowRepoInfo = async () => {
+    if (!lookupIssue) return;
+    setError('');
+    setLookupRepoInfoLoading(true);
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      const response = await fetch('/api/github/repo-info', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          owner: lookupIssue.owner.trim(),
+          repo: lookupIssue.repo.trim(),
+        }),
+      });
+      const data = (await response.json()) as { error?: string; repository?: RepoInfo };
+      if (!response.ok) {
+        setError(data.error || 'Failed to fetch repository info');
+        return;
+      }
+      setRepoInfo(data.repository || null);
+      setTab('finder');
+    } catch {
+      setError('An error occurred. Please try again.');
+    } finally {
+      setLookupRepoInfoLoading(false);
     }
   };
 
@@ -1606,6 +1655,11 @@ export default function DashboardPage() {
                     This issue or its repository is on your blacklist.
                   </p>
                 )}
+                {lookupRepoBlacklisted && (
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Repository-level blacklist is active for this issue&apos;s repo.
+                  </p>
+                )}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="lg:col-span-2 space-y-4">
                     <div>
@@ -1687,6 +1741,15 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="pt-4 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleLookupShowRepoInfo()}
+                    disabled={lookupRepoInfoLoading}
+                  >
+                    {lookupRepoInfoLoading ? 'Loading Repo Info...' : 'Show Repo Info'}
+                  </Button>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
