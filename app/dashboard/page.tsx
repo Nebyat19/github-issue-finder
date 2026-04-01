@@ -185,7 +185,9 @@ export default function DashboardPage() {
   const [finderLoading, setFinderLoading] = useState(false);
   const [repoInfoLoading, setRepoInfoLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [finderError, setFinderError] = useState('');
+  const [lookupError, setLookupError] = useState('');
+  const [repoFinderError, setRepoFinderError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isMounted, setIsMounted] = useState(false);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
@@ -414,7 +416,7 @@ export default function DashboardPage() {
     e?: React.FormEvent
   ) => {
     if (e) e.preventDefault();
-    setError('');
+    setFinderError('');
     setFinderLoading(true);
     setLookupIssue(null);
     setSelectedIssue(null);
@@ -431,7 +433,7 @@ export default function DashboardPage() {
       }
 
       if (!finderScanLimits) {
-        setError('Enter valid scan limits (integers in range).');
+        setFinderError('Enter valid scan limits (integers in range).');
         return;
       }
 
@@ -467,7 +469,7 @@ export default function DashboardPage() {
         if (response.status === 409 && data.code === 'REPO_BLACKLISTED') {
           setRepoBlockedForFetch(true);
         }
-        setError(data.error || 'Failed to fetch issues');
+        setFinderError(data.error || 'Failed to fetch issues');
         return;
       }
 
@@ -485,14 +487,14 @@ export default function DashboardPage() {
       );
       setHasFetchedFinder(true);
     } catch {
-      setError('An error occurred. Please try again.');
+      setFinderError('An error occurred. Please try again.');
     } finally {
       setFinderLoading(false);
     }
   };
 
   const handleFetchRepoInfo = async () => {
-    setError('');
+    setFinderError('');
     setRepoInfoLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -514,12 +516,12 @@ export default function DashboardPage() {
       });
       const data = (await response.json()) as { error?: string; repository?: RepoInfo };
       if (!response.ok) {
-        setError(data.error || 'Failed to fetch repository info');
+        setFinderError(data.error || 'Failed to fetch repository info');
         return;
       }
       setRepoInfo(data.repository || null);
     } catch {
-      setError('An error occurred. Please try again.');
+      setFinderError('An error occurred. Please try again.');
     } finally {
       setRepoInfoLoading(false);
     }
@@ -527,7 +529,7 @@ export default function DashboardPage() {
 
   const handleIssueLookup = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setLookupError('');
     setLookupLoading(true);
     setLookupIssue(null);
 
@@ -551,7 +553,7 @@ export default function DashboardPage() {
 
       const data = (await response.json()) as { error?: string; issue?: Issue };
       if (!response.ok) {
-        setError(data.error || 'Failed to lookup issue');
+        setLookupError(data.error || 'Failed to lookup issue');
         return;
       }
 
@@ -568,7 +570,7 @@ export default function DashboardPage() {
       };
       setLookupIssue(withFlag);
     } catch {
-      setError('An error occurred. Please try again.');
+      setLookupError('An error occurred. Please try again.');
     } finally {
       setLookupLoading(false);
     }
@@ -576,7 +578,7 @@ export default function DashboardPage() {
 
   const handleRepoFinder = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setRepoFinderError('');
     setRepoFinderLoading(true);
     setSelectedRepoResult(null);
     try {
@@ -605,13 +607,13 @@ export default function DashboardPage() {
       };
 
       if (!response.ok) {
-        setError(data.error || 'Failed to find repositories');
+        setRepoFinderError(data.error || 'Failed to find repositories');
         return;
       }
 
       setRepoFinderResults(data.repositories || []);
     } catch {
-      setError('An error occurred. Please try again.');
+      setRepoFinderError('An error occurred. Please try again.');
     } finally {
       setRepoFinderLoading(false);
     }
@@ -757,7 +759,7 @@ export default function DashboardPage() {
 
   const handleLookupShowRepoInfo = async () => {
     if (!lookupIssue) return;
-    setError('');
+    setLookupError('');
     setLookupRepoInfoLoading(true);
     try {
       const token = getAuthToken();
@@ -778,13 +780,13 @@ export default function DashboardPage() {
       });
       const data = (await response.json()) as { error?: string; repository?: RepoInfo };
       if (!response.ok) {
-        setError(data.error || 'Failed to fetch repository info');
+        setLookupError(data.error || 'Failed to fetch repository info');
         return;
       }
       setRepoInfo(data.repository || null);
       setTab('finder');
     } catch {
-      setError('An error occurred. Please try again.');
+      setLookupError('An error occurred. Please try again.');
     } finally {
       setLookupRepoInfoLoading(false);
     }
@@ -1049,10 +1051,10 @@ export default function DashboardPage() {
                       {finderMeta.warning}
                     </div>
                   )}
-                  {error && (
+                  {finderError && (
                     <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                      {error}
+                      {finderError}
                     </div>
                   )}
                   {repoBlockedForFetch && (
@@ -1486,10 +1488,10 @@ export default function DashboardPage() {
                       />
                     </div>
                   </div>
-                  {error && (
+                  {repoFinderError && (
                     <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                      {error}
+                      {repoFinderError}
                     </div>
                   )}
                   <button type="submit" disabled={isRepoFinderDisabled} className="btn-primary-gradient">
@@ -1627,10 +1629,10 @@ export default function DashboardPage() {
                   <p className="text-xs text-muted-foreground">
                     Uses the API key configured by admin.
                   </p>
-                  {error && (
+                  {lookupError && (
                     <div role="alert" aria-live="polite" className="status-error flex items-start gap-2">
                       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                      {error}
+                      {lookupError}
                     </div>
                   )}
                   <button

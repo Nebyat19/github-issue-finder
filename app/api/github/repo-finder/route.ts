@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
 import { config } from '@/lib/config';
+import { shortGithubUserFacingMessage } from '@/lib/github-api-user-message';
 
 interface GitHubSearchRepoItem {
   id: number;
@@ -149,12 +150,13 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       const ghMessage = await readGitHubErrorMessage(response);
       const fallback = 'Failed to search repositories on GitHub';
-      const error = ghMessage || fallback;
+      const rawError = ghMessage || fallback;
       console.error(
         'repo-finder: GitHub search/repositories failed',
         response.status,
-        error
+        rawError
       );
+      const error = shortGithubUserFacingMessage(rawError);
 
       if (response.status === 401) {
         return NextResponse.json(
