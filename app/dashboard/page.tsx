@@ -1079,24 +1079,34 @@ export default function DashboardPage() {
                   >
                     {finderLoading ? 'Fetching...' : 'Find Issues'}
                   </button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={repoInfoLoading || !owner.trim() || !repo.trim()}
-                    onClick={handleFetchRepoInfo}
-                    className="ml-2"
-                  >
-                    {repoInfoLoading ? 'Loading Repo Info...' : 'Show Repo Info'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={isFinderDisabled || blacklistBusyId === 'post'}
-                    onClick={() => void handleBlacklistCurrentRepo()}
-                    className="ml-2 border-destructive/50 text-destructive hover:bg-destructive/10"
-                  >
-                    Blacklist this repo
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={repoInfoLoading || !owner.trim() || !repo.trim()}
+                        onClick={handleFetchRepoInfo}
+                        className="ml-2"
+                      >
+                        {repoInfoLoading ? 'Loading Repo Info...' : 'Show Repo Info'}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Fetch repository metadata for the current owner/repo.</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={isFinderDisabled || blacklistBusyId === 'post'}
+                        onClick={() => void handleBlacklistCurrentRepo()}
+                        className="ml-2 border-destructive/50 text-destructive hover:bg-destructive/10"
+                      >
+                        Blacklist this repo
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Blocks this repository across finder and lookup results.</TooltipContent>
+                  </Tooltip>
                 </form>
               </div>
             </div>
@@ -1656,9 +1666,16 @@ export default function DashboardPage() {
                   </p>
                 )}
                 {lookupRepoBlacklisted && (
-                  <p className="text-xs text-muted-foreground mb-4">
-                    Repository-level blacklist is active for this issue&apos;s repo.
-                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-xs text-muted-foreground mb-4 inline-flex cursor-help">
+                        Repository-level blacklist is active for this issue&apos;s repo.
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      Repo blacklist means all issues in this repository are treated as blocked.
+                    </TooltipContent>
+                  </Tooltip>
                 )}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className="lg:col-span-2 space-y-4">
@@ -1741,15 +1758,22 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="pt-4 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void handleLookupShowRepoInfo()}
-                    disabled={lookupRepoInfoLoading}
-                  >
-                    {lookupRepoInfoLoading ? 'Loading Repo Info...' : 'Show Repo Info'}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleLookupShowRepoInfo()}
+                        disabled={lookupRepoInfoLoading}
+                      >
+                        {lookupRepoInfoLoading ? 'Loading Repo Info...' : 'Show Repo Info'}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      Loads this issue&apos;s repository details in the repository info panel.
+                    </TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
