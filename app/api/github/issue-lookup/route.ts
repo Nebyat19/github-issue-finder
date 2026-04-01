@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const ownerLc = parsed.owner.trim().toLowerCase();
     const repoLc = parsed.repo.trim().toLowerCase().replace(/\.git$/i, '');
 
-    if (db.blacklist.isIssueBlacklisted(ownerLc, repoLc, parsed.issueNumber)) {
+    if (await db.blacklist.isIssueBlacklisted(ownerLc, repoLc, parsed.issueNumber)) {
       return NextResponse.json(
         { error: 'This issue or repository is blacklisted.' },
         { status: 403 }

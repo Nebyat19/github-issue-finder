@@ -16,9 +16,11 @@ async function main() {
   const adminUser = await prisma.user.create({
     data: {
       email: "admin@example.com",
-      password: hashedPassword,
+      passwordHash: hashedPassword,
+      role: "admin",
+      isApproved: true,
+      isBanned: false,
       isAdmin: true,
-      isActive: true,
     },
   });
 
@@ -30,9 +32,11 @@ async function main() {
   const testUser = await prisma.user.create({
     data: {
       email: "user@example.com",
-      password: await bcrypt.hash("user123", 10),
+      passwordHash: await bcrypt.hash("user123", 10),
+      role: "user",
+      isApproved: false,
+      isBanned: false,
       isAdmin: false,
-      isActive: false,
     },
   });
 

@@ -1,4 +1,3 @@
-// Simple in-memory database for development (API keys persisted in SQLite)
 import { config } from '@/lib/config';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
@@ -53,60 +52,72 @@ export interface BlacklistEntry {
 }
 
 interface InMemoryState {
-  users: Map<string, User>;
-  blacklist: Map<string, BlacklistEntry>;
   repositories: Map<string, Repository>;
   issues: Map<string, Issue>;
 }
 
 const globalDb = globalThis as typeof globalThis & {
   __issueFinderInMemoryDb?: InMemoryState;
+  __issueFinderSeedPromise?: Promise<void>;
 };
 
 const state: InMemoryState =
   globalDb.__issueFinderInMemoryDb ??
   (globalDb.__issueFinderInMemoryDb = {
-    users: new Map<string, User>(),
-    blacklist: new Map<string, BlacklistEntry>(),
     repositories: new Map<string, Repository>(),
     issues: new Map<string, Issue>(),
   });
 
-if (!(state as { blacklist?: Map<string, BlacklistEntry> }).blacklist) {
-  (state as { blacklist: Map<string, BlacklistEntry> }).blacklist = new Map();
+function toUser(row: {
+  id: string;
+  email: string;
+  passwordHash: string;
+  role: string;
+  isApproved: boolean;
+  isBanned: boolean;
+  isAdmin: boolean;
+  createdAt: Date;
+}): User {
+  return {
+    id: row.id,
+    email: row.email,
+    passwordHash: row.passwordHash,
+    role: row.role === 'admin' ? 'admin' : 'user',
+    isApproved: row.isApproved,
+    isBanned: row.isBanned,
+    isAdmin: row.isAdmin,
+    createdAt: row.createdAt,
+  };
 }
 
-function persistState(): void {
-  // JSON persistence removed. Keep no-op for backward compatibility.
-}
+async function ensureSeeded(): Promise<void> {
+  if (!globalDb.__issueFinderSeedPromise) {
+    globalDb.__issueFinderSeedPromise = (async () => {
+      const defaultAdminId = config.seed.adminId;
+      const defaultAdminEmail = config.seed.adminEmail.trim().toLowerCase();
+      const defaultAdminHash =
+        config.seed.adminPasswordHash ||
+        (config.seed.adminPassword ? bcrypt.hashSync(config.seed.adminPassword, 10) : '');
 
-function loadPersistedState(): void {
-  // JSON persistence removed.
-}
+      if (!defaultAdminEmail || !defaultAdminHash) return;
 
-loadPersistedState();
+      const byEmail = await prisma.user.findUnique({ where: { email: defaultAdminEmail } });
+      if (byEmail) return;
 
-// Create default admin user for testing (skipped if already loaded from disk)
-const defaultAdminId = config.seed.adminId;
-const defaultAdminEmail = config.seed.adminEmail;
-const defaultAdminHash =
-  config.seed.adminPasswordHash ||
-  (config.seed.adminPassword
-    ? bcrypt.hashSync(config.seed.adminPassword, 10)
-    : '');
-
-if (defaultAdminEmail && defaultAdminHash && !state.users.has(defaultAdminId)) {
-  state.users.set(defaultAdminId, {
-    id: defaultAdminId,
-    email: defaultAdminEmail,
-    passwordHash: defaultAdminHash,
-    role: 'admin',
-    isApproved: true,
-    isBanned: false,
-    isAdmin: true,
-    createdAt: new Date(),
-  });
-  persistState();
+      await prisma.user.create({
+        data: {
+          id: defaultAdminId,
+          email: defaultAdminEmail,
+          passwordHash: defaultAdminHash,
+          role: 'admin',
+          isApproved: true,
+          isBanned: false,
+          isAdmin: true,
+        },
+      });
+    })();
+  }
+  await globalDb.__issueFinderSeedPromise;
 }
 
 export const db = {
@@ -121,48 +132,51 @@ export const db = {
         isAdmin?: boolean;
       };
     }) => {
-      const id = 'user-' + Math.random().toString(36).substr(2, 9);
+      await ensureSeeded();
       const role = input.data.role ?? (input.data.isAdmin ? 'admin' : 'user');
-      const user: User = {
-        id,
-        email: input.data.email,
-        passwordHash: input.data.passwordHash,
-        role,
-        isApproved: input.data.isApproved ?? false,
-        isBanned: input.data.isBanned ?? false,
-        isAdmin: role === 'admin',
-        createdAt: new Date(),
-      };
-      state.users.set(id, user);
-      persistState();
-      return user;
+      const created = await prisma.user.create({
+        data: {
+          email: input.data.email,
+          passwordHash: input.data.passwordHash,
+          role,
+          isApproved: input.data.isApproved ?? false,
+          isBanned: input.data.isBanned ?? false,
+          isAdmin: role === 'admin',
+        },
+      });
+      return toUser(created);
     },
     findUnique: async (query: { where: { email?: string; id?: string } }) => {
+      await ensureSeeded();
       if (query.where.id) {
-        return state.users.get(query.where.id) ?? null;
+        const row = await prisma.user.findUnique({ where: { id: query.where.id } });
+        return row ? toUser(row) : null;
       }
-
-      if (!query.where.email) {
-        return null;
-      }
-
-      for (const user of state.users.values()) {
-        if (user.email === query.where.email) {
-          return user;
-        }
-      }
-      return null;
+      if (!query.where.email) return null;
+      const row = await prisma.user.findUnique({ where: { email: query.where.email } });
+      return row ? toUser(row) : null;
     },
     findMany: async () => {
-      return Array.from(state.users.values());
+      await ensureSeeded();
+      const rows = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+      return rows.map(toUser);
     },
     update: async (query: { where: { id: string }; data: Partial<User> }) => {
-      const user = state.users.get(query.where.id);
-      if (!user) return null;
-      const updated = { ...user, ...query.data };
-      state.users.set(query.where.id, updated);
-      persistState();
-      return updated;
+      await ensureSeeded();
+      const existing = await prisma.user.findUnique({ where: { id: query.where.id } });
+      if (!existing) return null;
+      const updated = await prisma.user.update({
+        where: { id: query.where.id },
+        data: {
+          email: query.data.email,
+          passwordHash: query.data.passwordHash,
+          role: query.data.role,
+          isApproved: query.data.isApproved,
+          isBanned: query.data.isBanned,
+          isAdmin: query.data.isAdmin,
+        },
+      });
+      return toUser(updated);
     },
   },
   apiKey: {
@@ -213,7 +227,8 @@ export const db = {
       });
     },
     resolveForGithubRequest: async (requestingUserId: string) => {
-      const usersList = Array.from(state.users.values());
+      await ensureSeeded();
+      const usersList = await db.user.findMany();
       const adminIds = new Set(
         usersList
           .filter((u) => u.role === 'admin' || u.isAdmin)
@@ -248,28 +263,51 @@ export const db = {
   },
   blacklist: {
     findMany: async () => {
-      return Array.from(state.blacklist.values()).sort(
-        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
-      );
+      const rows = await prisma.blacklist.findMany({
+        orderBy: { createdAt: 'desc' },
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind === 'issue' ? 'issue' : 'repo',
+        owner: row.owner,
+        repo: row.repo,
+        issueNumber: row.issueNumber ?? undefined,
+        createdAt: row.createdAt,
+      }));
     },
     findDuplicate: (
       kind: BlacklistKind,
       owner: string,
       repo: string,
       issueNumber?: number
-    ): BlacklistEntry | null => {
+    ): Promise<BlacklistEntry | null> => {
       const o = owner.trim().toLowerCase();
       const r = repo.trim().toLowerCase();
       const n =
         kind === 'issue' && issueNumber != null
           ? Math.floor(Number(issueNumber))
           : null;
-      for (const e of state.blacklist.values()) {
-        if (e.kind !== kind || e.owner !== o || e.repo !== r) continue;
-        if (kind === 'repo') return e;
-        if (n != null && e.issueNumber === n) return e;
-      }
-      return null;
+      return prisma.blacklist
+        .findFirst({
+          where: {
+            kind,
+            owner: o,
+            repo: r,
+            issueNumber: kind === 'issue' ? (n ?? undefined) : null,
+          },
+        })
+        .then((row) =>
+          row
+            ? {
+                id: row.id,
+                kind: row.kind === 'issue' ? 'issue' : 'repo',
+                owner: row.owner,
+                repo: row.repo,
+                issueNumber: row.issueNumber ?? undefined,
+                createdAt: row.createdAt,
+              }
+            : null
+        );
     },
     create: async (input: {
       kind: BlacklistKind;
@@ -284,67 +322,79 @@ export const db = {
       if (input.kind === 'issue') {
         const num = Math.floor(Number(input.issueNumber));
         if (!Number.isFinite(num) || num < 1) return null;
-        const id = 'bl-' + Math.random().toString(36).substring(2, 11);
-        const entry: BlacklistEntry = {
-          id,
+        const row = await prisma.blacklist.create({
+          data: {
+            kind: 'issue',
+            owner,
+            repo,
+            issueNumber: num,
+          },
+        });
+        return {
+          id: row.id,
           kind: 'issue',
-          owner,
-          repo,
-          issueNumber: num,
-          createdAt: new Date(),
+          owner: row.owner,
+          repo: row.repo,
+          issueNumber: row.issueNumber ?? undefined,
+          createdAt: row.createdAt,
         };
-        state.blacklist.set(id, entry);
-        persistState();
-        return entry;
       }
 
-      const id = 'bl-' + Math.random().toString(36).substring(2, 11);
-      const entry: BlacklistEntry = {
-        id,
+      const row = await prisma.blacklist.create({
+        data: {
+          kind: 'repo',
+          owner,
+          repo,
+        },
+      });
+      return {
+        id: row.id,
         kind: 'repo',
-        owner,
-        repo,
-        createdAt: new Date(),
+        owner: row.owner,
+        repo: row.repo,
+        createdAt: row.createdAt,
       };
-      state.blacklist.set(id, entry);
-      persistState();
-      return entry;
     },
     delete: async (query: { where: { id: string } }) => {
-      const row = state.blacklist.get(query.where.id);
-      if (!row) return null;
-      state.blacklist.delete(query.where.id);
-      persistState();
-      return row;
+      const existing = await prisma.blacklist.findUnique({
+        where: { id: query.where.id },
+      });
+      if (!existing) return null;
+      const row = await prisma.blacklist.delete({
+        where: { id: query.where.id },
+      });
+      return {
+        id: row.id,
+        kind: row.kind === 'issue' ? 'issue' : 'repo',
+        owner: row.owner,
+        repo: row.repo,
+        issueNumber: row.issueNumber ?? undefined,
+        createdAt: row.createdAt,
+      };
     },
-    isRepoBlacklisted: (owner: string, repo: string): boolean => {
+    isRepoBlacklisted: async (owner: string, repo: string): Promise<boolean> => {
       const o = owner.trim().toLowerCase();
       const r = repo.trim().toLowerCase().replace(/\.git$/i, '');
-      for (const e of state.blacklist.values()) {
-        if (e.kind === 'repo' && e.owner === o && e.repo === r) return true;
-      }
-      return false;
+      const row = await prisma.blacklist.findFirst({
+        where: { kind: 'repo', owner: o, repo: r },
+      });
+      return !!row;
     },
     isIssueBlacklisted: (
       owner: string,
       repo: string,
       issueNumber: number
-    ): boolean => {
-      if (db.blacklist.isRepoBlacklisted(owner, repo)) return true;
+    ): Promise<boolean> => {
+      return db.blacklist.isRepoBlacklisted(owner, repo).then(async (repoBlocked) => {
+      if (repoBlocked) return true;
       const o = owner.trim().toLowerCase();
       const r = repo.trim().toLowerCase().replace(/\.git$/i, '');
       const n = Math.floor(issueNumber);
-      for (const e of state.blacklist.values()) {
-        if (
-          e.kind === 'issue' &&
-          e.owner === o &&
-          e.repo === r &&
-          e.issueNumber === n
-        ) {
-          return true;
-        }
-      }
-      return false;
+      const row = await prisma.blacklist.findFirst({
+        where: { kind: 'issue', owner: o, repo: r, issueNumber: n },
+      });
+      return !!row;
+      });
     },
   },
   repository: {

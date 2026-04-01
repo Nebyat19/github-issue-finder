@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
 
     const dup =
       kind === 'repo'
-        ? db.blacklist.findDuplicate('repo', owner, repo)
-        : db.blacklist.findDuplicate('issue', owner, repo, issueNumber);
+        ? await db.blacklist.findDuplicate('repo', owner, repo)
+        : await db.blacklist.findDuplicate('issue', owner, repo, issueNumber);
     if (dup) {
       return NextResponse.json({ error: 'Already blacklisted' }, { status: 409 });
     }

@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
       .toLowerCase()
       .replace(/\.git$/i, '');
 
-    const repoBlacklisted = db.blacklist.isRepoBlacklisted(ownerNorm, repoNorm);
+    const repoBlacklisted = await db.blacklist.isRepoBlacklisted(ownerNorm, repoNorm);
     if (repoBlacklisted && !forceFetchBlacklistedRepo) {
       return NextResponse.json(
         {
@@ -277,7 +277,7 @@ export async function POST(request: NextRequest) {
       candidateIssues,
       14,
       async (issue): Promise<ProcessedIssue | null> => {
-        const issueBlacklisted = db.blacklist.isIssueBlacklisted(
+        const issueBlacklisted = await db.blacklist.isIssueBlacklisted(
           ownerNorm,
           repoNorm,
           issue.number

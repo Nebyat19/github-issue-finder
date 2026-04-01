@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
         const isBlacklisted =
           !!owner &&
           !!name &&
-          db.blacklist.isRepoBlacklisted(owner.toLowerCase(), name.toLowerCase());
+          (await db.blacklist.isRepoBlacklisted(owner.toLowerCase(), name.toLowerCase()));
         return {
           id: repo.id,
           fullName: repo.full_name,

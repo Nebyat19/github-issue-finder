@@ -13,9 +13,11 @@ datasource db {
 model User {
   id        String     @id @default(cuid())
   email     String     @unique
-  password  String
+  passwordHash String  @map("password")
+  role      String     @default("user")
+  isApproved Boolean   @default(false)
+  isBanned  Boolean    @default(false)
   isAdmin   Boolean    @default(false)
-  isActive  Boolean    @default(false)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -64,4 +66,16 @@ model ApiKey {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+model Blacklist {
+  id          String   @id @default(cuid())
+  kind        String
+  owner       String
+  repo        String
+  issueNumber Int?
+  createdAt   DateTime @default(now())
+
+  @@index([kind, owner, repo])
+  @@index([owner, repo, issueNumber])
 }

@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       .toLowerCase()
       .replace(/\.git$/i, '');
 
-    if (db.blacklist.isRepoBlacklisted(ownerNorm, repoNorm)) {
+    if (await db.blacklist.isRepoBlacklisted(ownerNorm, repoNorm)) {
       return NextResponse.json(
         { error: 'This repository is blacklisted.' },
         { status: 403 }
