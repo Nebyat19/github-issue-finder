@@ -31,7 +31,7 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # Generate Prisma Client
 #ENV DATABASE_URL=file:/data/dev.db
-#RUN npx prisma generate
+RUN npx prisma generate
 
 # Copy application code
 COPY . .
