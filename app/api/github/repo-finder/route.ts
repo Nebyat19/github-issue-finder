@@ -43,6 +43,31 @@ async function mapWithConcurrency<T, R>(
   return result;
 }
 
+function githubAuthHeaders(token: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: config.github.acceptHeader,
+  };
+}
+
+async function readGitHubErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const raw = await response.text();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { message?: string };
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        return parsed.message.trim();
+      }
+    } catch {
+      /* not JSON */
+    }
+    return raw.slice(0, 300);
+  } catch {
+    return null;
+  }
+}
+
 async function fetchClosedIssuesCount(
   token: string,
   fullName: string
@@ -52,10 +77,7 @@ async function fetchClosedIssuesCount(
     const response = await fetch(
       `${config.github.apiBaseUrl}/search/issues?q=${q}&per_page=1`,
       {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: config.github.acceptHeader,
-        },
+        headers: githubAuthHeaders(token),
       }
     );
     if (!response.ok) return 0;
@@ -120,17 +142,42 @@ export async function POST(request: NextRequest) {
     const response = await fetch(
       `${config.github.apiBaseUrl}/search/repositories?q=${query}&sort=stars&order=desc&per_page=${maxResults}`,
       {
-        headers: {
-          Authorization: `token ${apiKey.token}`,
-          Accept: config.github.acceptHeader,
-        },
+        headers: githubAuthHeaders(apiKey.token),
       }
     );
 
     if (!response.ok) {
+      const ghMessage = await readGitHubErrorMessage(response);
+      const fallback = 'Failed to search repositories on GitHub';
+      const error = ghMessage || fallback;
+      console.error(
+        'repo-finder: GitHub search/repositories failed',
+        response.status,
+        error
+      );
+
+      if (response.status === 401) {
+        return NextResponse.json(
+          { error, code: 'GITHUB_UNAUTHORIZED' },
+          { status: 401 }
+        );
+      }
+      if (response.status === 403) {
+        return NextResponse.json(
+          { error, code: 'GITHUB_FORBIDDEN' },
+          { status: 403 }
+        );
+      }
+      if (response.status === 422) {
+        return NextResponse.json(
+          { error, code: 'GITHUB_VALIDATION' },
+          { status: 422 }
+        );
+      }
+
       return NextResponse.json(
-        { error: 'Failed to search repositories on GitHub' },
-        { status: 400 }
+        { error, code: 'GITHUB_SEARCH_FAILED' },
+        { status: 502 }
       );
     }
 
