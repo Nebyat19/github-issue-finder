@@ -1,5 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 
+// Singleton to prevent multiple PrismaClients in Next.js
 const globalForPrisma = globalThis as typeof globalThis & {
   __issueFinderPrisma?: PrismaClient;
 };
@@ -7,9 +8,14 @@ const globalForPrisma = globalThis as typeof globalThis & {
 export const prisma =
   globalForPrisma.__issueFinderPrisma ??
   new PrismaClient({
-    log: ['error'],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL || "file:/data/dev.db",
+      },
+    },
+    log: ["error"],
   });
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== "production") {
   globalForPrisma.__issueFinderPrisma = prisma;
 }
