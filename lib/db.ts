@@ -1,8 +1,7 @@
-// Simple in-memory database for development (optional JSON persistence)
-import fs from 'fs';
-import path from 'path';
+// Simple in-memory database for development (API keys persisted in SQLite)
 import { config } from '@/lib/config';
 import bcrypt from 'bcryptjs';
+import { prisma } from '@/lib/prisma';
 
 interface User {
   id: string;
@@ -55,7 +54,6 @@ export interface BlacklistEntry {
 
 interface InMemoryState {
   users: Map<string, User>;
-  apiKeys: Map<string, ApiKey>;
   blacklist: Map<string, BlacklistEntry>;
   repositories: Map<string, Repository>;
   issues: Map<string, Issue>;
@@ -69,7 +67,6 @@ const state: InMemoryState =
   globalDb.__issueFinderInMemoryDb ??
   (globalDb.__issueFinderInMemoryDb = {
     users: new Map<string, User>(),
-    apiKeys: new Map<string, ApiKey>(),
     blacklist: new Map<string, BlacklistEntry>(),
     repositories: new Map<string, Repository>(),
     issues: new Map<string, Issue>(),
@@ -79,110 +76,12 @@ if (!(state as { blacklist?: Map<string, BlacklistEntry> }).blacklist) {
   (state as { blacklist: Map<string, BlacklistEntry> }).blacklist = new Map();
 }
 
-function getPersistPath(): string {
-  const override = process.env.ISSUE_FINDER_DB_PATH?.trim();
-  if (override) return override;
-  return path.join(process.cwd(), '.data', 'issue-finder-db.json');
-}
-
 function persistState(): void {
-  if (typeof window !== 'undefined') return;
-
-  try {
-    const filePath = getPersistPath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    const payload = {
-      users: Array.from(state.users.entries()).map(([id, u]) => [
-        id,
-        { ...u, createdAt: u.createdAt.toISOString() },
-      ]),
-      apiKeys: Array.from(state.apiKeys.entries()).map(([id, k]) => [
-        id,
-        { ...k, createdAt: k.createdAt.toISOString() },
-      ]),
-      blacklist: Array.from(state.blacklist.entries()).map(([id, b]) => [
-        id,
-        {
-          ...b,
-          createdAt: b.createdAt.toISOString(),
-        },
-      ]),
-    };
-    fs.writeFileSync(filePath, JSON.stringify(payload), 'utf8');
-  } catch (err) {
-    console.error('[issue-finder-db] Failed to persist state', err);
-  }
+  // JSON persistence removed. Keep no-op for backward compatibility.
 }
 
 function loadPersistedState(): void {
-  if (typeof window !== 'undefined') return;
-
-  try {
-    const filePath = getPersistPath();
-    if (!fs.existsSync(filePath)) return;
-
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw) return;
-
-    const data = JSON.parse(raw) as {
-      users?: [string, Record<string, unknown>][];
-      apiKeys?: [string, Record<string, unknown>][];
-      blacklist?: [string, Record<string, unknown>][];
-    };
-
-    const nextUsers = new Map<string, User>();
-    const nextKeys = new Map<string, ApiKey>();
-    const nextBlacklist = new Map<string, BlacklistEntry>();
-
-    for (const [id, row] of data.users ?? []) {
-      const role = row.role === 'admin' ? 'admin' : 'user';
-      nextUsers.set(id, {
-        id: String(row.id ?? id),
-        email: String(row.email ?? ''),
-        passwordHash: String(row.passwordHash ?? ''),
-        role,
-        isApproved: Boolean(row.isApproved),
-        isBanned: Boolean(row.isBanned),
-        isAdmin: Boolean(row.isAdmin ?? role === 'admin'),
-        createdAt: new Date(String(row.createdAt ?? Date.now())),
-      });
-    }
-
-    for (const [id, row] of data.apiKeys ?? []) {
-      nextKeys.set(id, {
-        id: String(row.id ?? id),
-        userId: String(row.userId ?? ''),
-        token: String(row.token ?? ''),
-        isActive: row.isActive !== false,
-        createdAt: new Date(String(row.createdAt ?? Date.now())),
-      });
-    }
-
-    for (const [id, row] of data.blacklist ?? []) {
-      const kind = row.kind === 'issue' ? 'issue' : 'repo';
-      const issueNumber = row.issueNumber;
-      nextBlacklist.set(id, {
-        id: String(row.id ?? id),
-        kind,
-        owner: String(row.owner ?? '').toLowerCase(),
-        repo: String(row.repo ?? '').toLowerCase(),
-        issueNumber:
-          kind === 'issue' && issueNumber != null && Number.isFinite(Number(issueNumber))
-            ? Math.floor(Number(issueNumber))
-            : undefined,
-        createdAt: new Date(String(row.createdAt ?? Date.now())),
-      });
-    }
-
-    state.users.clear();
-    state.apiKeys.clear();
-    state.blacklist.clear();
-    for (const [id, user] of nextUsers) state.users.set(id, user);
-    for (const [id, key] of nextKeys) state.apiKeys.set(id, key);
-    for (const [id, b] of nextBlacklist) state.blacklist.set(id, b);
-  } catch (err) {
-    console.error('[issue-finder-db] Failed to load persisted state', err);
-  }
+  // JSON persistence removed.
 }
 
 loadPersistedState();
@@ -268,49 +167,50 @@ export const db = {
   },
   apiKey: {
     create: async (data: { userId: string; token: string; isActive?: boolean }) => {
-      const id = 'key-' + Math.random().toString(36).substr(2, 9);
-      const key: ApiKey = {
-        id,
-        userId: data.userId,
-        token: data.token,
-        isActive: data.isActive ?? true,
-        createdAt: new Date(),
-      };
-      state.apiKeys.set(id, key);
-      persistState();
-      return key;
+      return prisma.apiKey.create({
+        data: {
+          userId: data.userId,
+          token: data.token,
+          isActive: data.isActive ?? true,
+        },
+      });
     },
     findUnique: async (query: { where: { id: string } }) => {
-      return state.apiKeys.get(query.where.id) ?? null;
+      return prisma.apiKey.findUnique({
+        where: { id: query.where.id },
+      });
     },
     findFirst: async (query: { where: { userId?: string; token?: string } }) => {
-      for (const key of state.apiKeys.values()) {
-        const userIdMatch =
-          query.where.userId === undefined || key.userId === query.where.userId;
-        const tokenMatch =
-          query.where.token === undefined || key.token === query.where.token;
-        if (userIdMatch && tokenMatch) {
-          return key;
-        }
-      }
-      return null;
+      return prisma.apiKey.findFirst({
+        where: {
+          userId: query.where.userId,
+          token: query.where.token,
+        },
+      });
     },
     update: async (
       query: { where: { id: string }; data: Partial<Pick<ApiKey, 'token' | 'isActive'>> }
     ) => {
-      const key = state.apiKeys.get(query.where.id);
-      if (!key) return null;
-      const updated = { ...key, ...query.data };
-      state.apiKeys.set(query.where.id, updated);
-      persistState();
-      return updated;
+      const existing = await prisma.apiKey.findUnique({
+        where: { id: query.where.id },
+      });
+      if (!existing) return null;
+      return prisma.apiKey.update({
+        where: { id: query.where.id },
+        data: {
+          token: query.data.token,
+          isActive: query.data.isActive,
+        },
+      });
     },
     delete: async (query: { where: { id: string } }) => {
-      const key = state.apiKeys.get(query.where.id);
-      if (!key) return null;
-      state.apiKeys.delete(query.where.id);
-      persistState();
-      return key;
+      const existing = await prisma.apiKey.findUnique({
+        where: { id: query.where.id },
+      });
+      if (!existing) return null;
+      return prisma.apiKey.delete({
+        where: { id: query.where.id },
+      });
     },
     resolveForGithubRequest: async (requestingUserId: string) => {
       const usersList = Array.from(state.users.values());
@@ -320,26 +220,30 @@ export const db = {
           .map((u) => u.id)
       );
 
-      const usable = (k: ApiKey) =>
-        k.token.trim().length > 0 && k.isActive !== false;
+      const pool = await prisma.apiKey.findMany({
+        where: {
+          isActive: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const usable = pool.filter((k) => k.token.trim().length > 0);
 
-      const pool = Array.from(state.apiKeys.values()).filter(usable);
-
-      const fromAdmin = pool
-        .filter((k) => adminIds.has(k.userId))
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const fromAdmin = usable.filter((k) => adminIds.has(k.userId));
       if (fromAdmin.length > 0) return fromAdmin[0];
 
-      const fromUser = pool
-        .filter((k) => k.userId === requestingUserId)
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const fromUser = usable.filter((k) => k.userId === requestingUserId);
       return fromUser[0] ?? null;
     },
     findMany: async (query?: { where: { userId: string } }) => {
-      if (!query?.where.userId) return Array.from(state.apiKeys.values());
-      return Array.from(state.apiKeys.values()).filter(
-        (k) => k.userId === query.where.userId
-      );
+      if (!query?.where.userId) {
+        return prisma.apiKey.findMany({
+          orderBy: { createdAt: 'desc' },
+        });
+      }
+      return prisma.apiKey.findMany({
+        where: { userId: query.where.userId },
+        orderBy: { createdAt: 'desc' },
+      });
     },
   },
   blacklist: {
