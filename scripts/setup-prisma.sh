@@ -10,6 +10,6 @@ npx --yes prisma@5.22.0 generate
 npx --yes prisma@5.22.0 migrate deploy
 
 # Seed the database with initial admin user
-npx tsx scripts/init-db.ts
+node scripts/init-db.mjs
 
 echo "Database setup complete!"

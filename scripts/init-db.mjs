@@ -1,10 +1,16 @@
-import { prisma } from "../lib/prisma";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL || "file:/data/dev.db",
+    },
+  },
+  log: ["error"],
+});
 
 async function seedDatabase() {
-  // Admin user
   const existingAdmin = await prisma.user.findUnique({
     where: { email: "admin@issue-finder.com" },
   });
@@ -23,7 +29,6 @@ async function seedDatabase() {
     });
     console.log("✓ Admin user created: admin@issue-finder.com / admin@123");
 
-    // Admin API key
     const adminApiKey = await prisma.apiKey.create({
       data: {
         userId: adminUser.id,
@@ -36,7 +41,6 @@ async function seedDatabase() {
     console.log("✓ Admin user already exists, skipping creation");
   }
 
-  // Test user
   const existingTestUser = await prisma.user.findUnique({
     where: { email: "user@example.com" },
   });
@@ -61,14 +65,11 @@ async function seedDatabase() {
   console.log("✓ Database initialized successfully!");
 }
 
-// Run seed manually if called directly
-if (require.main === module) {
-  seedDatabase()
-    .catch((e) => {
-      console.error(e);
-      process.exit(1);
-    })
-    .finally(async () => {
-      await prisma.$disconnect();
-    });
-}
+seedDatabase()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
