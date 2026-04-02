@@ -1255,9 +1255,37 @@ export default function DashboardPage() {
                           key={issue.id}
                           className={`border-b border-border hover:bg-muted/50 ${issue.isBlacklisted ? 'bg-muted/25' : ''}`}
                         >
-                          <TableCell className="text-foreground">#{issue.number}</TableCell>
+                          <TableCell className="text-foreground">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="hover:underline cursor-pointer text-inherit"
+                                  onClick={() => setSelectedIssue(issue)}
+                                >
+                                  #{issue.number}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                Click to show the detail of issue #{issue.number}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
                           <TableCell className="text-foreground font-medium max-w-xs truncate">
-                            {issue.title}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="hover:underline cursor-pointer text-inherit"
+                                  onClick={() => setSelectedIssue(issue)}
+                                >
+                                  {issue.title}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                Click to show the detail of issue #{issue.number}
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                           <TableCell>
                             <a
@@ -1460,8 +1488,10 @@ export default function DashboardPage() {
                             </Button>
                             </div>
                             <div className="flex items-center gap-2">
-                              <code className="text-xs bg-muted px-2 py-1 rounded break-all">
-                                {`git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git && cd ${selectedIssue.repo} && git checkout ${snapshotCommitHash}`}
+                              <code className="text-xs bg-muted px-2 py-1 rounded break-all whitespace-pre">
+                                {`git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git
+cd ${selectedIssue.repo}
+git checkout ${snapshotCommitHash}`}
                               </code>
                               <Button
                                 type="button"
@@ -1469,7 +1499,7 @@ export default function DashboardPage() {
                                 variant="outline"
                                 onClick={() =>
                                   copyText(
-                                    `git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git && cd ${selectedIssue.repo} && git checkout ${snapshotCommitHash}`,
+                                    `git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git\ncd ${selectedIssue.repo}\ngit checkout ${snapshotCommitHash}`,
                                     'clone'
                                   )
                                 }
@@ -1834,8 +1864,10 @@ export default function DashboardPage() {
                           </Button>
                         </div>
                         <div className="flex items-center gap-2">
-                          <code className="text-xs bg-muted px-2 py-1 rounded break-all">
-                            {`git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git && cd ${lookupIssue.repo} && git checkout ${lookupSnapshotCommitHash}`}
+                          <code className="text-xs bg-muted px-2 py-1 rounded break-all whitespace-pre">
+                            {`git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git
+cd ${lookupIssue.repo}
+git checkout ${lookupSnapshotCommitHash}`}
                           </code>
                           <Button
                             type="button"
@@ -1843,7 +1875,7 @@ export default function DashboardPage() {
                             variant="outline"
                             onClick={() =>
                               copyText(
-                                `git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git && cd ${lookupIssue.repo} && git checkout ${lookupSnapshotCommitHash}`,
+                                `git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git\ncd ${lookupIssue.repo}\ngit checkout ${lookupSnapshotCommitHash}`,
                                 'clone'
                               )
                             }
