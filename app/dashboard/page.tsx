@@ -185,7 +185,7 @@ export default function DashboardPage() {
   const [lookupSnapshotCommitHash, setLookupSnapshotCommitHash] = useState<string | null>(null);
   const [lookupSnapshotLoading, setLookupSnapshotLoading] = useState(false);
   const [lookupRepoInfoLoading, setLookupRepoInfoLoading] = useState(false);
-  const [copiedField, setCopiedField] = useState<'hash' | 'checkout' | null>(null);
+  const [copiedField, setCopiedField] = useState<'hash' | 'checkout' | 'clone' | null>(null);
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [maxAnalyzeIssues, setMaxAnalyzeIssues] = useState('80');
   const [maxIssuePages, setMaxIssuePages] = useState('20');
@@ -329,20 +329,23 @@ export default function DashboardPage() {
     void loadBlacklist();
   }, [tab]);
 
-  const postBlacklist = async (body: {
-    kind: 'repo' | 'issue';
-    url?: string;
-    owner?: string;
-    repo?: string;
-    issueNumber?: number;
-  }): Promise<BlacklistEntryRow[] | false> => {
+  const postBlacklist = async (
+    body: {
+      kind: 'repo' | 'issue';
+      url?: string;
+      owner?: string;
+      repo?: string;
+      issueNumber?: number;
+    },
+    busyId: string = 'post'
+  ): Promise<BlacklistEntryRow[] | false> => {
     const token = getAuthToken();
     if (!token) {
       router.replace('/login');
       return false;
     }
     setBlacklistError('');
-    setBlacklistBusyId('post');
+    setBlacklistBusyId(busyId);
     try {
       const res = await fetch('/api/blacklist', {
         method: 'POST',
@@ -352,7 +355,10 @@ export default function DashboardPage() {
         },
         body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as {
+        error?: string;
+        entry?: BlacklistEntryRow;
+      };
       if (res.status === 409) {
         setBlacklistError(data.error || 'Already blacklisted');
         return false;
@@ -361,7 +367,11 @@ export default function DashboardPage() {
         setBlacklistError(data.error || 'Failed to update blacklist');
         return false;
       }
-      return await loadBlacklist();
+      // Prefer a full refetch, but fall back to the returned entry so the UI updates immediately.
+      const list = await loadBlacklist();
+      if (list.length > 0) return list;
+      if (data.entry) return [data.entry];
+      return [];
     } catch {
       setBlacklistError('Failed to update blacklist');
       return false;
@@ -373,10 +383,13 @@ export default function DashboardPage() {
   const handleBlacklistCurrentRepo = async () => {
     const parsed = parseFinderRepoUrl(repoUrlInput);
     if (!parsed) return;
-    const entries = await postBlacklist({
-      kind: 'repo',
-      url: `https://github.com/${parsed.owner}/${parsed.repo}`,
-    });
+    const entries = await postBlacklist(
+      {
+        kind: 'repo',
+        url: `https://github.com/${parsed.owner}/${parsed.repo}`,
+      },
+      'repo-current'
+    );
     if (entries !== false) {
       setManualRepoBlacklist('');
       setIssues([]);
@@ -390,10 +403,13 @@ export default function DashboardPage() {
   };
 
   const handleBlacklistIssue = async (issue: Issue) => {
-    const entries = await postBlacklist({
-      kind: 'issue',
-      url: issue.url,
-    });
+    const entries = await postBlacklist(
+      {
+        kind: 'issue',
+        url: issue.url,
+      },
+      String(issue.id)
+    );
     if (entries !== false) {
       applyBlacklistToIssueState(entries);
     }
@@ -794,7 +810,7 @@ export default function DashboardPage() {
     void loadLookupSnapshotCommit();
   }, [lookupIssue]);
 
-  const copyText = async (text: string, field: 'hash' | 'checkout') => {
+  const copyText = async (text: string, field: 'hash' | 'checkout' | 'clone') => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
@@ -1136,7 +1152,7 @@ export default function DashboardPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={isFinderDisabled || blacklistBusyId === 'post'}
+                    disabled={isFinderDisabled || blacklistBusyId === 'repo-current'}
                         onClick={() => void handleBlacklistCurrentRepo()}
                         className="ml-2 border-destructive/50 text-destructive hover:bg-destructive/10"
                       >
@@ -1308,7 +1324,8 @@ export default function DashboardPage() {
                                   aria-label="Blacklist issue"
                                   className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8"
                                   disabled={
-                                    blacklistBusyId === 'post' || Boolean(issue.isBlacklisted)
+                                    blacklistBusyId === String(issue.id) ||
+                                    Boolean(issue.isBlacklisted)
                                   }
                                   onClick={() => void handleBlacklistIssue(issue)}
                                 >
@@ -1319,13 +1336,20 @@ export default function DashboardPage() {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedIssue(issue)}
-                              className="text-primary hover:underline text-sm"
-                            >
-                              View Details
-                            </button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedIssue(issue)}
+                                  className="text-primary hover:underline text-sm"
+                                >
+                                  View Details
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                Click to show details for issue #{issue.number}
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1435,6 +1459,24 @@ export default function DashboardPage() {
                               {copiedField === 'checkout' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                             </Button>
                             </div>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+                                {`git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git && cd ${selectedIssue.repo} && git checkout ${snapshotCommitHash}`}
+                              </code>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  copyText(
+                                    `git clone git@github.com:${selectedIssue.owner}/${selectedIssue.repo}.git && cd ${selectedIssue.repo} && git checkout ${snapshotCommitHash}`,
+                                    'clone'
+                                  )
+                                }
+                              >
+                                {copiedField === 'clone' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1448,7 +1490,7 @@ export default function DashboardPage() {
                               aria-label="Blacklist issue"
                               className="border-destructive/50 text-destructive hover:bg-destructive/10 h-8 w-8"
                               disabled={
-                                blacklistBusyId === 'post' ||
+                                blacklistBusyId === String(selectedIssue.id) ||
                                 Boolean(selectedIssue.isBlacklisted)
                               }
                               onClick={() => void handleBlacklistIssue(selectedIssue)}
@@ -1791,6 +1833,24 @@ export default function DashboardPage() {
                             {copiedField === 'checkout' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                           </Button>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+                            {`git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git && cd ${lookupIssue.repo} && git checkout ${lookupSnapshotCommitHash}`}
+                          </code>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              copyText(
+                                `git clone git@github.com:${lookupIssue.owner}/${lookupIssue.repo}.git && cd ${lookupIssue.repo} && git checkout ${lookupSnapshotCommitHash}`,
+                                'clone'
+                              )
+                            }
+                          >
+                            {copiedField === 'clone' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1820,7 +1880,8 @@ export default function DashboardPage() {
                         aria-label="Blacklist issue"
                         className="border-destructive/50 text-destructive hover:bg-destructive/10 h-8 w-8"
                         disabled={
-                          blacklistBusyId === 'post' || Boolean(lookupIssue.isBlacklisted)
+                          blacklistBusyId === String(lookupIssue.id) ||
+                          Boolean(lookupIssue.isBlacklisted)
                         }
                         onClick={() => void handleBlacklistIssue(lookupIssue)}
                       >

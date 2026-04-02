@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [isSignup, setIsSignup] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const router = useRouter();
   const isPasswordMismatch =
     isSignup && confirmPassword.length > 0 && password !== confirmPassword;
@@ -25,6 +26,16 @@ export default function LoginPage() {
     !email.trim() ||
     password.length < 8 ||
     (isSignup && (!confirmPassword || isPasswordMismatch));
+
+  useEffect(() => {
+    // If the user is already logged in, don't show the login form.
+    const token = localStorage.getItem('token');
+    if (token) {
+      router.replace('/dashboard');
+      return;
+    }
+    setCheckingAuth(false);
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,6 +79,10 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (checkingAuth) {
+    return null;
+  }
 
   return (
     <div className="app-shell flex items-center justify-center p-4">
