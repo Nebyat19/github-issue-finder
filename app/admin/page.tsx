@@ -11,6 +11,7 @@ import {
   Ban,
   CheckCircle2,
   Clock3,
+  FileDown,
   KeyRound,
   Shield,
   Users,
@@ -44,6 +45,50 @@ interface ApiKey {
   userEmail?: string;
 }
 
+interface BlacklistExportEntry {
+  id: string;
+  kind: string;
+  owner: string;
+  repo: string;
+  issueNumber?: number;
+  label: string;
+  createdAt: string;
+}
+
+function escapeCsvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function rowsToCsv(rows: Record<string, unknown>[], columns: string[]): string {
+  const header = columns.map((c) => escapeCsvCell(c)).join(',');
+  const lines = rows.map((row) =>
+    columns.map((col) => escapeCsvCell(row[col])).join(',')
+  );
+  return [header, ...lines].join('\n');
+}
+
+function downloadTextFile(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportTimestamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+}
+
+/** Excel on Windows recognizes UTF-8 CSV when the file starts with a BOM. */
+const CSV_UTF8_BOM = '\uFEFF';
+
 export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -53,8 +98,9 @@ export default function AdminPage() {
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [editingTokenValue, setEditingTokenValue] = useState('');
   const [adminSection, setAdminSection] = useState<
-    'keys' | 'approved' | 'pending' | 'banned'
+    'keys' | 'approved' | 'pending' | 'banned' | 'export'
   >('keys');
+  const [exportBusy, setExportBusy] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const isAddKeyDisabled = !newKeyToken.trim();
@@ -312,6 +358,110 @@ export default function AdminPage() {
     setEditingTokenValue(key.token);
   };
 
+  const exportUsers = async (format: 'csv' | 'json') => {
+    setError('');
+    setExportBusy(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      const res = await fetch('/api/admin/users', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json()) as { users?: User[]; error?: string };
+      if (!res.ok) {
+        setError(data.error || 'Failed to load users for export');
+        return;
+      }
+      const list = data.users || [];
+      const ts = exportTimestamp();
+      if (format === 'json') {
+        downloadTextFile(
+          `users-${ts}.json`,
+          JSON.stringify(list, null, 2),
+          'application/json;charset=utf-8'
+        );
+      } else {
+        const cols = ['id', 'email', 'role', 'isApproved', 'isBanned', 'isAdmin', 'createdAt'];
+        const rows = list.map((u) => ({
+          id: u.id,
+          email: u.email,
+          role: u.role,
+          isApproved: u.isApproved,
+          isBanned: u.isBanned,
+          isAdmin: u.isAdmin ?? false,
+          createdAt:
+            typeof u.createdAt === 'string'
+              ? u.createdAt
+              : new Date(u.createdAt).toISOString(),
+        }));
+        downloadTextFile(
+          `users-${ts}.csv`,
+          CSV_UTF8_BOM + rowsToCsv(rows, cols),
+          'text/csv;charset=utf-8'
+        );
+      }
+    } catch {
+      setError('User export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const exportBlacklist = async (format: 'csv' | 'json') => {
+    setError('');
+    setExportBusy(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      const res = await fetch('/api/admin/blacklist', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json()) as {
+        entries?: BlacklistExportEntry[];
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(data.error || 'Failed to load blacklist for export');
+        return;
+      }
+      const list = data.entries || [];
+      const ts = exportTimestamp();
+      if (format === 'json') {
+        downloadTextFile(
+          `blacklist-${ts}.json`,
+          JSON.stringify(list, null, 2),
+          'application/json;charset=utf-8'
+        );
+      } else {
+        const cols = ['id', 'kind', 'owner', 'repo', 'issueNumber', 'label', 'createdAt'];
+        const rows = list.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          owner: e.owner,
+          repo: e.repo,
+          issueNumber: e.issueNumber ?? '',
+          label: e.label,
+          createdAt: e.createdAt,
+        }));
+        downloadTextFile(
+          `blacklist-${ts}.csv`,
+          CSV_UTF8_BOM + rowsToCsv(rows, cols),
+          'text/csv;charset=utf-8'
+        );
+      }
+    } catch {
+      setError('Blacklist export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const handleUpdateApiKey = async (keyId: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -373,7 +523,7 @@ export default function AdminPage() {
               Admin Panel
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Manage users and API keys
+              Manage users, API keys, and data exports
             </p>
           </div>
           <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-2">
@@ -458,6 +608,15 @@ export default function AdminPage() {
                 onClick={() => setAdminSection('banned')}
               >
                 Banned Users
+              </Button>
+              <Button
+                type="button"
+                variant={adminSection === 'export' ? 'default' : 'ghost'}
+                className="w-full justify-start rounded-xl"
+                onClick={() => setAdminSection('export')}
+              >
+                <FileDown className="h-4 w-4 mr-2" />
+                Export data
               </Button>
             </div>
           </aside>
@@ -602,6 +761,75 @@ export default function AdminPage() {
                 </TableBody>
               </Table>
             )}
+          </div>
+        </Card>
+        )}
+
+        {adminSection === 'export' && (
+        <Card className="section-card mb-8">
+          <div className="p-6 space-y-6">
+            <h2 className="text-lg font-semibold text-foreground mb-1 inline-flex items-center gap-2">
+              <FileDown className="h-4 w-4 text-primary" />
+              Export data
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Download users or blacklist entries via admin-only APIs as CSV or JSON. CSV files
+              include a UTF-8 BOM for Excel. Filenames include a UTC timestamp.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Users</h3>
+                <p className="text-xs text-muted-foreground">
+                  Columns: id, email, role, isApproved, isBanned, isAdmin, createdAt
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={exportBusy}
+                    onClick={() => void exportUsers('csv')}
+                  >
+                    CSV
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={exportBusy}
+                    onClick={() => void exportUsers('json')}
+                  >
+                    JSON
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-foreground">Blacklist</h3>
+                <p className="text-xs text-muted-foreground">
+                  Columns: id, kind, owner, repo, issueNumber, label, createdAt
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={exportBusy}
+                    onClick={() => void exportBlacklist('csv')}
+                  >
+                    CSV
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={exportBusy}
+                    onClick={() => void exportBlacklist('json')}
+                  >
+                    JSON
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
         )}
