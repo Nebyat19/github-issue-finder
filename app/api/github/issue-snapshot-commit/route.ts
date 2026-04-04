@@ -9,6 +9,13 @@ interface GitHubCommit {
 
 interface GitHubPullRequest {
   merged_at: string | null;
+  /** Present when state is merged: the commit on the base branch (merge/squash/rebase result). */
+  merge_commit_sha: string | null;
+}
+
+interface GitHubCommitDetail {
+  sha: string;
+  parents: { sha: string }[];
 }
 
 export async function POST(request: NextRequest) {
@@ -53,23 +60,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const headers = {
+      Authorization: `Bearer ${apiKey.token}`,
+      Accept: config.github.acceptHeader,
+    };
+
     let untilDate: string | null = null;
     if (linkedPR) {
       const prNumber = String(linkedPR).split('/').pop();
       if (prNumber) {
         const prResponse = await fetch(
           `${config.github.apiBaseUrl}/repos/${ownerNorm}/${repoNorm}/pulls/${prNumber}`,
-          {
-            headers: {
-              Authorization: `token ${apiKey.token}`,
-              Accept: config.github.acceptHeader,
-            },
-          }
+          { headers }
         );
         if (prResponse.ok) {
           const pr = (await prResponse.json()) as GitHubPullRequest;
           if (pr.merged_at) {
             untilDate = pr.merged_at;
+          }
+          /**
+           * First parent of merge/squash/rebase commit on base = base tip *before* the PR landed.
+           * commits?until=merged_at often surfaces the merge commit (after merge).
+           */
+          const mergeSha = pr.merge_commit_sha?.trim();
+          if (mergeSha) {
+            const mergeCommitRes = await fetch(
+              `${config.github.apiBaseUrl}/repos/${ownerNorm}/${repoNorm}/commits/${mergeSha}`,
+              { headers }
+            );
+            if (mergeCommitRes.ok) {
+              const mergeCommit = (await mergeCommitRes.json()) as GitHubCommitDetail;
+              const parentSha = mergeCommit.parents?.[0]?.sha?.trim();
+              if (parentSha) {
+                return NextResponse.json({ commitHash: parentSha }, { status: 200 });
+              }
+            }
           }
         }
       }
@@ -85,12 +110,7 @@ export async function POST(request: NextRequest) {
     const until = encodeURIComponent(new Date(untilDate).toISOString());
     const response = await fetch(
       `${config.github.apiBaseUrl}/repos/${ownerNorm}/${repoNorm}/commits?until=${until}&per_page=1`,
-      {
-        headers: {
-          Authorization: `token ${apiKey.token}`,
-          Accept: config.github.acceptHeader,
-        },
-      }
+      { headers }
     );
 
     if (!response.ok) {
