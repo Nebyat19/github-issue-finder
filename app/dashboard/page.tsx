@@ -13,6 +13,7 @@ import {
   FileCode2,
   GitPullRequest,
   LayoutGrid,
+  Link2,
   LogOut,
   Search,
   ShieldAlert,
@@ -144,6 +145,17 @@ function repoMatchesBlacklist(
   return entries.some((e) => e.kind === 'repo' && e.owner === o && e.repo === r);
 }
 
+/** True if the issue body likely contains a hyperlink (URL, markdown link, or common www form). */
+function issueDescriptionHasLink(body: string | null | undefined): boolean {
+  const t = (body ?? '').trim();
+  if (!t) return false;
+  if (/https?:\/\//i.test(t)) return true;
+  if (/\]\(\s*https?:\/\//i.test(t)) return true;
+  if (/<https?:\/\//i.test(t)) return true;
+  if (/\bwww\.[a-z0-9][\w.-]*\.[a-z]{2,}\b/i.test(t)) return true;
+  return false;
+}
+
 function parseFinderInt(raw: string, min: number, max: number): number | null {
   if (!raw.trim()) return null;
   const n = Number(raw);
@@ -208,6 +220,7 @@ export default function DashboardPage() {
   const [lookupError, setLookupError] = useState('');
   const [repoFinderError, setRepoFinderError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [onlyWithDescriptionLinks, setOnlyWithDescriptionLinks] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
   const [blacklistEntries, setBlacklistEntries] = useState<BlacklistEntryRow[]>([]);
@@ -697,16 +710,31 @@ export default function DashboardPage() {
     router.replace('/login');
   };
 
-  const filteredIssues = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return issues;
+  const issuesWithDescriptionLinks = useMemo(
+    () => issues.filter((i) => issueDescriptionHasLink(i.description)),
+    [issues]
+  );
 
-    return issues.filter(
+  const filteredIssues = useMemo(() => {
+    let list = onlyWithDescriptionLinks
+      ? issues.filter((issue) => issueDescriptionHasLink(issue.description))
+      : issues;
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return list;
+
+    return list.filter(
       (issue) =>
         issue.title.toLowerCase().includes(term) ||
         issue.author.toLowerCase().includes(term)
     );
-  }, [issues, searchTerm]);
+  }, [issues, searchTerm, onlyWithDescriptionLinks]);
+
+  useEffect(() => {
+    setSelectedIssue((prev) => {
+      if (!prev) return null;
+      return filteredIssues.some((i) => i.id === prev.id) ? prev : null;
+    });
+  }, [filteredIssues]);
 
   const finderStats = useMemo(() => {
     const blacklisted = issues.filter((i) => i.isBlacklisted).length;
@@ -1221,7 +1249,7 @@ export default function DashboardPage() {
 
             {issues.length > 0 && (
               <>
-                <div className="mb-4">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                   <Input
                     placeholder="Search by title or author..."
                     value={searchTerm}
@@ -1229,8 +1257,44 @@ export default function DashboardPage() {
                     className="max-w-md"
                     aria-label="Search issues by title or author"
                   />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant={onlyWithDescriptionLinks ? 'default' : 'outline'}
+                        size="sm"
+                        className="shrink-0 gap-1.5"
+                        aria-pressed={onlyWithDescriptionLinks}
+                        onClick={() => setOnlyWithDescriptionLinks((v) => !v)}
+                      >
+                        <Link2 className="h-4 w-4" aria-hidden />
+                        Link in description
+                        {issuesWithDescriptionLinks.length > 0 && (
+                          <span className="tabular-nums opacity-90">
+                            ({issuesWithDescriptionLinks.length})
+                          </span>
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      Show only issues whose description contains a URL (http/https, markdown links, or
+                      www.…)
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
+                {filteredIssues.length === 0 &&
+                  (onlyWithDescriptionLinks && issuesWithDescriptionLinks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground mb-3" role="status">
+                      No loaded issues have a detectable link in the description. Try fetching more
+                      issues or turn off this filter.
+                    </p>
+                  ) : searchTerm.trim() ? (
+                    <p className="text-sm text-muted-foreground mb-3" role="status">
+                      No issues match your search.
+                    </p>
+                  ) : null)}
 
+                {filteredIssues.length > 0 && (
                 <div className="pro-table-wrapper animate-fade-in">
                   <div className="max-h-[420px] overflow-y-auto">
                   <Table>
@@ -1385,6 +1449,7 @@ export default function DashboardPage() {
                   </Table>
                   </div>
                 </div>
+                )}
 
                 {selectedIssue && (
                   <div className="detail-panel mt-6">
