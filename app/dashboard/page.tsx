@@ -1518,7 +1518,13 @@ export default function DashboardPage() {
                     </div>
                     <div className="pt-4">
                       <div className="pt-2">
-                        <p className="font-medium">Snapshot Commit (closest commit at/before PR merge)</p>
+                        <p className="font-medium">
+                          Snapshot commit (earliest default-branch commit after the issue, before merge)
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Default branch only. Window ends at PR merge time, or at request time if the PR
+                          is not merged. Not the pre-merge tip.
+                        </p>
                         <p className="text-muted-foreground break-all">
                           {snapshotLoading ? 'Resolving snapshot commit...' : snapshotCommitHash || 'N/A'}
                         </p>
@@ -1892,7 +1898,13 @@ git checkout ${snapshotCommitHash}`}
                 </div>
                 <div className="pt-4">
                   <div className="pt-2">
-                    <p className="font-medium">Snapshot Commit (closest commit at/before PR merge)</p>
+                    <p className="font-medium">
+                      Snapshot commit (earliest default-branch commit after the issue, before merge)
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Default branch only. Window ends at PR merge time, or at request time if the PR is
+                      not merged. Not the pre-merge tip.
+                    </p>
                     <p className="text-muted-foreground break-all">
                       {lookupSnapshotLoading
                         ? 'Resolving snapshot commit...'
