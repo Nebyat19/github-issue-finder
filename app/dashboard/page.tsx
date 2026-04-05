@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import {
   Ban,
   Check,
@@ -99,6 +100,17 @@ interface RepoFinderResult {
   updatedAt: string;
   isBlacklisted: boolean;
 }
+
+type FinderBlacklistFilter = 'all' | 'blocked' | 'not_blocked';
+type FinderDescriptionLinkFilter = 'all' | 'with_link' | 'without_link';
+type FinderIssueSort =
+  | 'default'
+  | 'code_asc'
+  | 'code_desc'
+  | 'total_asc'
+  | 'total_desc'
+  | 'number_asc'
+  | 'number_desc';
 
 const REPO_FINDER_LANGUAGES = [
   'TypeScript',
@@ -220,7 +232,11 @@ export default function DashboardPage() {
   const [lookupError, setLookupError] = useState('');
   const [repoFinderError, setRepoFinderError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [onlyWithDescriptionLinks, setOnlyWithDescriptionLinks] = useState(false);
+  const [finderBlacklistFilter, setFinderBlacklistFilter] =
+    useState<FinderBlacklistFilter>('all');
+  const [finderDescriptionLinkFilter, setFinderDescriptionLinkFilter] =
+    useState<FinderDescriptionLinkFilter>('all');
+  const [finderIssueSort, setFinderIssueSort] = useState<FinderIssueSort>('default');
   const [isMounted, setIsMounted] = useState(false);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
   const [blacklistEntries, setBlacklistEntries] = useState<BlacklistEntryRow[]>([]);
@@ -716,18 +732,60 @@ export default function DashboardPage() {
   );
 
   const filteredIssues = useMemo(() => {
-    let list = onlyWithDescriptionLinks
-      ? issues.filter((issue) => issueDescriptionHasLink(issue.description))
-      : issues;
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return list;
+    let list = [...issues];
 
-    return list.filter(
-      (issue) =>
-        issue.title.toLowerCase().includes(term) ||
-        issue.author.toLowerCase().includes(term)
-    );
-  }, [issues, searchTerm, onlyWithDescriptionLinks]);
+    if (finderBlacklistFilter === 'blocked') {
+      list = list.filter((i) => Boolean(i.isBlacklisted));
+    } else if (finderBlacklistFilter === 'not_blocked') {
+      list = list.filter((i) => !i.isBlacklisted);
+    }
+
+    if (finderDescriptionLinkFilter === 'with_link') {
+      list = list.filter((i) => issueDescriptionHasLink(i.description));
+    } else if (finderDescriptionLinkFilter === 'without_link') {
+      list = list.filter((i) => !issueDescriptionHasLink(i.description));
+    }
+
+    const term = searchTerm.trim().toLowerCase();
+    if (term) {
+      list = list.filter(
+        (issue) =>
+          issue.title.toLowerCase().includes(term) ||
+          issue.author.toLowerCase().includes(term)
+      );
+    }
+
+    if (finderIssueSort !== 'default') {
+      const sorted = [...list];
+      sorted.sort((a, b) => {
+        switch (finderIssueSort) {
+          case 'code_asc':
+            return a.filesChanged.code - b.filesChanged.code;
+          case 'code_desc':
+            return b.filesChanged.code - a.filesChanged.code;
+          case 'total_asc':
+            return a.filesChanged.total - b.filesChanged.total;
+          case 'total_desc':
+            return b.filesChanged.total - a.filesChanged.total;
+          case 'number_asc':
+            return a.number - b.number;
+          case 'number_desc':
+            return b.number - a.number;
+          default:
+            return 0;
+        }
+      });
+      list = sorted;
+    }
+
+    return list;
+  }, [
+    issues,
+    searchTerm,
+    finderBlacklistFilter,
+    finderDescriptionLinkFilter,
+    finderIssueSort,
+  ]);
 
   useEffect(() => {
     setSelectedIssue((prev) => {
@@ -1249,50 +1307,125 @@ export default function DashboardPage() {
 
             {issues.length > 0 && (
               <>
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                  <Input
-                    placeholder="Search by title or author..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="max-w-md"
-                    aria-label="Search issues by title or author"
-                  />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant={onlyWithDescriptionLinks ? 'default' : 'outline'}
-                        size="sm"
-                        className="shrink-0 gap-1.5"
-                        aria-pressed={onlyWithDescriptionLinks}
-                        onClick={() => setOnlyWithDescriptionLinks((v) => !v)}
+                <div className="mb-4 space-y-3 rounded-xl border border-border/70 bg-muted/15 p-4">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Filter and sort
+                  </p>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+                    <div className="space-y-1.5 min-w-0 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+                      <Label htmlFor="finder-issue-search" className="text-xs text-muted-foreground">
+                        Search (title or author)
+                      </Label>
+                      <Input
+                        id="finder-issue-search"
+                        placeholder="Search by title or author..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        aria-label="Search issues by title or author"
+                      />
+                    </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <Label className="text-xs text-muted-foreground">Blacklist</Label>
+                      <Select
+                        value={finderBlacklistFilter}
+                        onValueChange={(v) =>
+                          setFinderBlacklistFilter(v as FinderBlacklistFilter)
+                        }
                       >
-                        <Link2 className="h-4 w-4" aria-hidden />
-                        Link in description
-                        {issuesWithDescriptionLinks.length > 0 && (
-                          <span className="tabular-nums opacity-90">
-                            ({issuesWithDescriptionLinks.length})
-                          </span>
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs">
-                      Show only issues whose description contains a URL (http/https, markdown links, or
-                      www.…)
-                    </TooltipContent>
-                  </Tooltip>
+                        <SelectTrigger className="w-full" aria-label="Filter by blacklist status">
+                          <SelectValue placeholder="Blacklist" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All issues</SelectItem>
+                          <SelectItem value="blocked">Blocked only</SelectItem>
+                          <SelectItem value="not_blocked">Not blocked</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Label className="text-xs text-muted-foreground cursor-default inline-flex items-center gap-1">
+                            <Link2 className="h-3 w-3" aria-hidden />
+                            Description link
+                            {issuesWithDescriptionLinks.length > 0 && (
+                              <span className="tabular-nums opacity-80">
+                                ({issuesWithDescriptionLinks.length})
+                              </span>
+                            )}
+                          </Label>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          http/https, markdown links, or www. URLs in the issue body
+                        </TooltipContent>
+                      </Tooltip>
+                      <Select
+                        value={finderDescriptionLinkFilter}
+                        onValueChange={(v) =>
+                          setFinderDescriptionLinkFilter(v as FinderDescriptionLinkFilter)
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label="Filter by link in description"
+                        >
+                          <SelectValue placeholder="Description link" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="with_link">With link</SelectItem>
+                          <SelectItem value="without_link">Without link</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <Label className="text-xs text-muted-foreground">Sort by</Label>
+                      <Select
+                        value={finderIssueSort}
+                        onValueChange={(v) => setFinderIssueSort(v as FinderIssueSort)}
+                      >
+                        <SelectTrigger className="w-full" aria-label="Sort issues">
+                          <SelectValue placeholder="Sort" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default (fetch order)</SelectItem>
+                          <SelectItem value="code_asc">Code files changed (low → high)</SelectItem>
+                          <SelectItem value="code_desc">Code files changed (high → low)</SelectItem>
+                          <SelectItem value="total_asc">Total files (low → high)</SelectItem>
+                          <SelectItem value="total_desc">Total files (high → low)</SelectItem>
+                          <SelectItem value="number_asc">Issue # (low → high)</SelectItem>
+                          <SelectItem value="number_desc">Issue # (high → low)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </div>
                 {filteredIssues.length === 0 &&
-                  (onlyWithDescriptionLinks && issuesWithDescriptionLinks.length === 0 ? (
+                  (finderDescriptionLinkFilter === 'with_link' &&
+                  issuesWithDescriptionLinks.length === 0 ? (
                     <p className="text-sm text-muted-foreground mb-3" role="status">
                       No loaded issues have a detectable link in the description. Try fetching more
-                      issues or turn off this filter.
+                      issues or widen filters.
+                    </p>
+                  ) : finderBlacklistFilter === 'blocked' &&
+                    issues.every((i) => !i.isBlacklisted) ? (
+                    <p className="text-sm text-muted-foreground mb-3" role="status">
+                      None of the loaded issues are blocked.
+                    </p>
+                  ) : finderBlacklistFilter === 'not_blocked' &&
+                    issues.every((i) => Boolean(i.isBlacklisted)) ? (
+                    <p className="text-sm text-muted-foreground mb-3" role="status">
+                      All loaded issues are blocked.
                     </p>
                   ) : searchTerm.trim() ? (
                     <p className="text-sm text-muted-foreground mb-3" role="status">
                       No issues match your search.
                     </p>
-                  ) : null)}
+                  ) : (
+                    <p className="text-sm text-muted-foreground mb-3" role="status">
+                      No issues match the current filters.
+                    </p>
+                  ))}
 
                 {filteredIssues.length > 0 && (
                 <div className="pro-table-wrapper animate-fade-in">
