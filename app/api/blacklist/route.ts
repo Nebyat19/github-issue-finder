@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
 import {
   parseIssueBlacklistInput,
   parseRepoBlacklistInput,
@@ -131,6 +132,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    void recordAudit({
+      userId: user.userId,
+      action: 'blacklist.add',
+      details: {
+        kind: entry.kind,
+        owner: entry.owner,
+        repo: entry.repo,
+        issueNumber: entry.issueNumber,
+      },
+    });
 
     return NextResponse.json(
       {

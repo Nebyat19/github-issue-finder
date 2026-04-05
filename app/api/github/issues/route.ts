@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
 import { config } from '@/lib/config';
+import { recordAudit } from '@/lib/audit';
 
 interface GitHubIssue {
   id: number;
@@ -49,6 +50,8 @@ interface ProcessedIssue {
   isBlacklisted: boolean;
   createdAt: string;
   updatedAt: string;
+  /** True when the linked PR is merged; false when it is still open. */
+  prMerged: boolean;
 }
 
 type LinkResult = { prUrl: string; commitHash: string } | null;
@@ -76,6 +79,9 @@ type CacheEntry<T> = {
 const RESULT_CACHE_TTL_MS = 5 * 60 * 1000;
 const LINK_CACHE_TTL_MS = 30 * 60 * 1000;
 const FILES_CACHE_TTL_MS = 30 * 60 * 1000;
+
+const PR_CLOSING_PATTERN =
+  /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:(?:https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/)|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#)|#)(\d+)\b/gi;
 
 const analysisCache = new Map<string, CacheEntry<AnalysisPayload>>();
 const linkedPrCache = new Map<string, CacheEntry<LinkResult>>();
@@ -164,6 +170,7 @@ export async function POST(request: NextRequest) {
       maxPullPages,
       minCodeFileChanges,
       forceFetchBlacklistedRepo,
+      includeOpenIssues,
     } = await request.json();
 
     if (!owner || !repo) {
@@ -220,11 +227,13 @@ export async function POST(request: NextRequest) {
       maxPullPages: effectiveMaxPullPages,
       minCodeFileChanges: effectiveMinCodeFileChanges,
     };
+    const includeOpen = Boolean(includeOpenIssues);
     const analysisCacheKey = JSON.stringify({
       owner: ownerNorm,
       repo: repoNorm,
       appliedLimits,
       forceFetchBlacklistedRepo: Boolean(forceFetchBlacklistedRepo),
+      includeOpenIssues: includeOpen,
     });
     const cachedResponse = getCached(analysisCache, analysisCacheKey);
     if (cachedResponse) {
@@ -241,12 +250,13 @@ export async function POST(request: NextRequest) {
     }
     const githubToken = apiKey.token;
 
-    const issues = await fetchClosedIssues(
+    const issues = await fetchRepoIssues(
       githubToken,
       ownerNorm,
       repoNorm,
       config.github.issuesPerPage,
-      effectiveMaxIssuePages
+      effectiveMaxIssuePages,
+      includeOpen
     );
     if (issues.length === 0) {
       return NextResponse.json(
@@ -256,8 +266,9 @@ export async function POST(request: NextRequest) {
           inspectedCount: 0,
           issues: [],
           appliedLimits,
-          warning:
-            'No closed issues fetched. Check token/repo access or increase issue page limit.',
+          warning: includeOpen
+            ? 'No issues fetched. Check token/repo access or increase issue page limit.'
+            : 'No closed issues fetched. Check token/repo access or increase issue page limit.',
         },
         { status: 200 }
       );
@@ -268,6 +279,15 @@ export async function POST(request: NextRequest) {
       repoNorm,
       effectiveMaxPullPages
     );
+    const openPrReferenceMap = includeOpen
+      ? await getOpenPrReferenceMap(
+          githubToken,
+          ownerNorm,
+          repoNorm,
+          effectiveMaxPullPages,
+          new Set(mergedPrReferenceMap.keys())
+        )
+      : new Map<number, { prUrl: string }>();
 
     const candidateIssues = issues
       .filter((issue) => !issue.pull_request)
@@ -284,19 +304,44 @@ export async function POST(request: NextRequest) {
         );
 
         const mergedPrMatch = mergedPrReferenceMap.get(issue.number);
-        const linkedResult =
-          mergedPrMatch ??
-          (await checkLinkedPR(githubToken, ownerNorm, repoNorm, issue.number));
+        const openPrMatch = openPrReferenceMap.get(issue.number);
+        let linkedPrUrl: string;
+        let linkedCommitHash: string;
+        let prMerged: boolean;
 
-        if (!linkedResult?.prUrl) {
-          return null;
+        if (mergedPrMatch) {
+          linkedPrUrl = mergedPrMatch.prUrl;
+          linkedCommitHash = mergedPrMatch.commitHash;
+          prMerged = true;
+        } else if (openPrMatch) {
+          linkedPrUrl = openPrMatch.prUrl;
+          linkedCommitHash = '';
+          prMerged = false;
+        } else {
+          const fromTimeline = await checkLinkedPR(
+            githubToken,
+            ownerNorm,
+            repoNorm,
+            issue.number
+          );
+          if (!fromTimeline?.prUrl) {
+            return null;
+          }
+          linkedPrUrl = fromTimeline.prUrl;
+          linkedCommitHash = fromTimeline.commitHash;
+          prMerged = await isPullMerged(
+            githubToken,
+            ownerNorm,
+            repoNorm,
+            linkedPrUrl
+          );
         }
 
         const filesChanged = await countChangedFiles(
           githubToken,
           ownerNorm,
           repoNorm,
-          linkedResult.prUrl
+          linkedPrUrl
         );
         if (filesChanged.code < effectiveMinCodeFileChanges) {
           return null;
@@ -311,8 +356,9 @@ export async function POST(request: NextRequest) {
           url: issue.html_url,
           author: issue.user.login,
           labels: issue.labels.map((l) => l.name),
-          linkedPR: linkedResult.prUrl,
-          commitHash: linkedResult.commitHash,
+          linkedPR: linkedPrUrl,
+          commitHash: linkedCommitHash,
+          prMerged,
           filesChanged,
           owner: ownerNorm,
           repo: repoNorm,
@@ -334,6 +380,16 @@ export async function POST(request: NextRequest) {
       repoBlacklisted,
     };
     setCached(analysisCache, analysisCacheKey, payload, RESULT_CACHE_TTL_MS);
+    void recordAudit({
+      userId: user.userId,
+      action: 'issue_finder.fetch',
+      details: {
+        owner: ownerNorm,
+        repo: repoNorm,
+        includeOpenIssues: includeOpen,
+        resultCount: processedIssues.length,
+      },
+    });
     return NextResponse.json(payload, { status: 200 });
   } catch (error) {
     console.error('GitHub API error:', error);
@@ -456,13 +512,11 @@ async function getMergedPrReferenceMap(
       return Array.isArray(pagePrs) ? pagePrs : [];
     });
     const prs: GitHubPullRequest[] = pageResults.flat();
-    const closingPattern =
-      /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:(?:https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/issues\/)|(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#)|#)(\d+)\b/gi;
 
     for (const pr of prs) {
       if (!pr.merged_at || !pr.body || !pr.html_url) continue;
 
-      for (const match of pr.body.matchAll(closingPattern)) {
+      for (const match of pr.body.matchAll(PR_CLOSING_PATTERN)) {
         const issueNumber = Number(match[1]);
         if (Number.isNaN(issueNumber)) continue;
         if (!issueToPr.has(issueNumber)) {
@@ -480,16 +534,90 @@ async function getMergedPrReferenceMap(
   return issueToPr;
 }
 
-async function fetchClosedIssues(
+async function getOpenPrReferenceMap(
+  token: string,
+  owner: string,
+  repo: string,
+  maxPullPages: number,
+  mergedIssueNumbers: Set<number>
+): Promise<Map<number, { prUrl: string }>> {
+  const issueToPr = new Map<number, { prUrl: string }>();
+
+  try {
+    const pages = Array.from({ length: maxPullPages }, (_, i) => i + 1);
+    const pageResults = await mapWithConcurrency(pages, 6, async (page) => {
+      const response = await fetch(
+        `${config.github.apiBaseUrl}/repos/${owner}/${repo}/pulls?state=open&per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: config.github.acceptHeader,
+          },
+        }
+      );
+      if (!response.ok) return [] as GitHubPullRequest[];
+      const pagePrs = (await response.json()) as GitHubPullRequest[];
+      return Array.isArray(pagePrs) ? pagePrs : [];
+    });
+    const prs: GitHubPullRequest[] = pageResults.flat();
+
+    for (const pr of prs) {
+      if (!pr.body || !pr.html_url) continue;
+
+      for (const match of pr.body.matchAll(PR_CLOSING_PATTERN)) {
+        const issueNumber = Number(match[1]);
+        if (Number.isNaN(issueNumber)) continue;
+        if (mergedIssueNumbers.has(issueNumber)) continue;
+        if (!issueToPr.has(issueNumber)) {
+          issueToPr.set(issueNumber, { prUrl: pr.html_url });
+        }
+      }
+    }
+  } catch {
+    return issueToPr;
+  }
+
+  return issueToPr;
+}
+
+async function isPullMerged(
+  token: string,
+  owner: string,
+  repo: string,
+  prUrl: string
+): Promise<boolean> {
+  const prNumber = prUrl.split('/').pop()?.split('?')[0];
+  if (!prNumber) return false;
+  try {
+    const res = await fetch(
+      `${config.github.apiBaseUrl}/repos/${owner}/${repo}/pulls/${prNumber}`,
+      {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: config.github.acceptHeader,
+        },
+      }
+    );
+    if (!res.ok) return false;
+    const pr = (await res.json()) as { merged_at?: string | null };
+    return pr.merged_at != null && String(pr.merged_at).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRepoIssues(
   token: string,
   owner: string,
   repo: string,
   perPage: number,
-  maxPages: number
+  maxPages: number,
+  includeOpen: boolean
 ): Promise<GitHubIssue[]> {
+  const state = includeOpen ? 'all' : 'closed';
   const pages = Array.from({ length: maxPages }, (_, i) => i + 1);
   const pageResults = await mapWithConcurrency(pages, 6, async (page) => {
-    const issuesUrl = `${config.github.apiBaseUrl}/repos/${owner}/${repo}/issues?state=closed&per_page=${perPage}&page=${page}`;
+    const issuesUrl = `${config.github.apiBaseUrl}/repos/${owner}/${repo}/issues?state=${state}&per_page=${perPage}&page=${page}`;
     const issuesResponse = await fetch(issuesUrl, {
       headers: {
         Authorization: `token ${token}`,
@@ -501,11 +629,16 @@ async function fetchClosedIssues(
     return Array.isArray(pageIssues) ? pageIssues : [];
   });
   const flattened = pageResults.flat();
-  flattened.sort(
+  const byId = new Map<number, GitHubIssue>();
+  for (const issue of flattened) {
+    byId.set(issue.id, issue);
+  }
+  const deduped = Array.from(byId.values());
+  deduped.sort(
     (a, b) =>
       new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
   );
-  return flattened;
+  return deduped;
 }
 
 async function countChangedFiles(

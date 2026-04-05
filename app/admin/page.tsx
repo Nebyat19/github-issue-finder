@@ -13,6 +13,7 @@ import {
   Clock3,
   FileDown,
   KeyRound,
+  ScrollText,
   Shield,
   Users,
 } from 'lucide-react';
@@ -43,6 +44,15 @@ interface ApiKey {
   createdAt: string;
   userId: string;
   userEmail?: string;
+}
+
+interface AuditLogRow {
+  id: string;
+  userId: string | null;
+  userEmail: string | null;
+  action: string;
+  details: string | null;
+  createdAt: string;
 }
 
 interface BlacklistExportEntry {
@@ -89,6 +99,8 @@ function exportTimestamp(): string {
 /** Excel on Windows recognizes UTF-8 CSV when the file starts with a BOM. */
 const CSV_UTF8_BOM = '\uFEFF';
 
+const AUDIT_PAGE_SIZE = 50;
+
 export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -98,9 +110,13 @@ export default function AdminPage() {
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
   const [editingTokenValue, setEditingTokenValue] = useState('');
   const [adminSection, setAdminSection] = useState<
-    'keys' | 'approved' | 'pending' | 'banned' | 'export'
+    'keys' | 'approved' | 'pending' | 'banned' | 'export' | 'audit'
   >('keys');
   const [exportBusy, setExportBusy] = useState(false);
+  const [auditEntries, setAuditEntries] = useState<AuditLogRow[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditOffset, setAuditOffset] = useState(0);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
   const isAddKeyDisabled = !newKeyToken.trim();
@@ -161,6 +177,41 @@ export default function AdminPage() {
 
     fetchUsers();
   }, [router]);
+
+  useEffect(() => {
+    if (!isMounted || adminSection !== 'audit') return;
+
+    const loadAudit = async () => {
+      setAuditLoading(true);
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const res = await fetch(
+          `/api/admin/audit-log?limit=${AUDIT_PAGE_SIZE}&offset=${auditOffset}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = (await res.json()) as {
+          entries?: AuditLogRow[];
+          total?: number;
+          error?: string;
+        };
+        if (!res.ok) {
+          setError(data.error || 'Failed to load audit log');
+          return;
+        }
+        setAuditTotal(data.total ?? 0);
+        setAuditEntries((prev) =>
+          auditOffset === 0 ? (data.entries || []) : [...prev, ...(data.entries || [])]
+        );
+      } catch {
+        setError('Failed to load audit log');
+      } finally {
+        setAuditLoading(false);
+      }
+    };
+
+    void loadAudit();
+  }, [isMounted, adminSection, auditOffset]);
 
   const handleApproveUser = async (userId: string) => {
     try {
@@ -618,6 +669,19 @@ export default function AdminPage() {
                 <FileDown className="h-4 w-4 mr-2" />
                 Export data
               </Button>
+              <Button
+                type="button"
+                variant={adminSection === 'audit' ? 'default' : 'ghost'}
+                className="w-full justify-start rounded-xl"
+                onClick={() => {
+                  setAuditOffset(0);
+                  setAuditEntries([]);
+                  setAdminSection('audit');
+                }}
+              >
+                <ScrollText className="h-4 w-4 mr-2" />
+                Audit log
+              </Button>
             </div>
           </aside>
           <div>
@@ -760,6 +824,66 @@ export default function AdminPage() {
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </div>
+        </Card>
+        )}
+
+        {adminSection === 'audit' && (
+        <Card className="section-card mb-8">
+          <div className="p-6 space-y-4">
+            <h2 className="text-lg font-semibold text-foreground mb-1 inline-flex items-center gap-2">
+              <ScrollText className="h-4 w-4 text-primary" />
+              Audit log
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Recent actions: logins, issue finder runs, blacklist changes, and API key updates.
+              Showing {auditEntries.length} of {auditTotal} entries.
+            </p>
+            {auditEntries.length === 0 && !auditLoading ? (
+              <p className="text-sm text-muted-foreground">No audit entries yet.</p>
+            ) : (
+              <div className="rounded-xl border border-border/70 overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-b border-border">
+                      <TableHead className="text-foreground whitespace-nowrap">Time (UTC)</TableHead>
+                      <TableHead className="text-foreground">User</TableHead>
+                      <TableHead className="text-foreground">Action</TableHead>
+                      <TableHead className="text-foreground min-w-[200px]">Details</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditEntries.map((row) => (
+                      <TableRow key={row.id} className="border-b border-border">
+                        <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
+                          {row.createdAt.replace('T', ' ').slice(0, 19)}
+                        </TableCell>
+                        <TableCell className="text-foreground text-sm">
+                          {row.userEmail || row.userId || '—'}
+                        </TableCell>
+                        <TableCell className="text-foreground text-xs font-mono">
+                          {row.action}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-xs max-w-md break-all">
+                          {row.details || '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {auditEntries.length < auditTotal && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={auditLoading}
+                onClick={() => setAuditOffset((o) => o + AUDIT_PAGE_SIZE)}
+              >
+                {auditLoading ? 'Loading…' : 'Load more'}
+              </Button>
             )}
           </div>
         </Card>

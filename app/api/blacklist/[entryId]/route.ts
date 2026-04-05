@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
 
 function getSessionUser(request: NextRequest) {
   const token = extractToken(request.headers.get('authorization'));
@@ -27,6 +28,18 @@ export async function DELETE(
     if (!deleted) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
+
+    void recordAudit({
+      userId: user.userId,
+      action: 'blacklist.remove',
+      details: {
+        entryId: deleted.id,
+        kind: deleted.kind,
+        owner: deleted.owner,
+        repo: deleted.repo,
+        issueNumber: deleted.issueNumber,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

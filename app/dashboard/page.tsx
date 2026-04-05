@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Ban,
   Check,
@@ -57,6 +58,8 @@ interface Issue {
   url: string;
   linkedPR?: string;
   commitHash?: string;
+  /** Present when linkedPR is set: merged vs open PR. */
+  prMerged?: boolean;
   filesChanged: FilesChangedBreakdown;
   labels: string[];
   createdAt: string;
@@ -111,6 +114,8 @@ type FinderIssueSort =
   | 'total_desc'
   | 'number_asc'
   | 'number_desc';
+
+type FinderPrStateFilter = 'all' | 'merged' | 'open' | 'none';
 
 const REPO_FINDER_LANGUAGES = [
   'TypeScript',
@@ -237,6 +242,9 @@ export default function DashboardPage() {
   const [finderDescriptionLinkFilter, setFinderDescriptionLinkFilter] =
     useState<FinderDescriptionLinkFilter>('all');
   const [finderIssueSort, setFinderIssueSort] = useState<FinderIssueSort>('default');
+  const [finderPrStateFilter, setFinderPrStateFilter] =
+    useState<FinderPrStateFilter>('all');
+  const [includeOpenIssues, setIncludeOpenIssues] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
   const [blacklistEntries, setBlacklistEntries] = useState<BlacklistEntryRow[]>([]);
@@ -531,6 +539,7 @@ export default function DashboardPage() {
           owner: parsedRepo.owner,
           repo: parsedRepo.repo,
           forceFetchBlacklistedRepo,
+          includeOpenIssues,
           ...finderScanLimits,
         }),
       });
@@ -746,6 +755,18 @@ export default function DashboardPage() {
       list = list.filter((i) => !issueDescriptionHasLink(i.description));
     }
 
+    if (finderPrStateFilter === 'merged') {
+      list = list.filter(
+        (i) => Boolean(i.linkedPR) && i.prMerged !== false
+      );
+    } else if (finderPrStateFilter === 'open') {
+      list = list.filter(
+        (i) => Boolean(i.linkedPR) && i.prMerged === false
+      );
+    } else if (finderPrStateFilter === 'none') {
+      list = list.filter((i) => !i.linkedPR);
+    }
+
     const term = searchTerm.trim().toLowerCase();
     if (term) {
       list = list.filter(
@@ -784,6 +805,7 @@ export default function DashboardPage() {
     searchTerm,
     finderBlacklistFilter,
     finderDescriptionLinkFilter,
+    finderPrStateFilter,
     finderIssueSort,
   ]);
 
@@ -1165,11 +1187,24 @@ export default function DashboardPage() {
                       />
                     </div>
                   </div>
+                  <div className="flex flex-wrap items-center gap-3 py-1">
+                    <Checkbox
+                      id="include-open-issues"
+                      checked={includeOpenIssues}
+                      onCheckedChange={(v) => setIncludeOpenIssues(v === true)}
+                    />
+                    <Label
+                      htmlFor="include-open-issues"
+                      className="text-sm font-normal text-foreground cursor-pointer"
+                    >
+                      Include open issues (closed are still fetched; widens the candidate pool)
+                    </Label>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Uses the API key configured by admin to fetch closed issues and metadata.
-                    Adjust how many closed issues and PR pages are scanned before &quot;Find Issues&quot;
-                    (defaults match server env when unchanged). Min code files changed
-                    filters by code files only, not total or docs files.
+                    Uses the API key configured by admin to fetch issues and metadata. With the box
+                    unchecked, only closed issues are loaded; when checked, open and closed are loaded
+                    (GitHub <code className="text-xs">state=all</code>). Adjust pages and limits before
+                    &quot;Find Issues&quot;. Min code files changed filters by code files only.
                   </p>
                   {finderMeta?.appliedLimits && (
                     <p className="text-xs text-muted-foreground" aria-live="polite">
@@ -1311,8 +1346,8 @@ export default function DashboardPage() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Filter and sort
                   </p>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
-                    <div className="space-y-1.5 min-w-0 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                    <div className="space-y-1.5 min-w-0 sm:col-span-2 xl:col-span-2">
                       <Label htmlFor="finder-issue-search" className="text-xs text-muted-foreground">
                         Search (title or author)
                       </Label>
@@ -1375,6 +1410,25 @@ export default function DashboardPage() {
                           <SelectItem value="all">All</SelectItem>
                           <SelectItem value="with_link">With link</SelectItem>
                           <SelectItem value="without_link">Without link</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <Label className="text-xs text-muted-foreground">PR state</Label>
+                      <Select
+                        value={finderPrStateFilter}
+                        onValueChange={(v) =>
+                          setFinderPrStateFilter(v as FinderPrStateFilter)
+                        }
+                      >
+                        <SelectTrigger className="w-full" aria-label="Filter by PR state">
+                          <SelectValue placeholder="PR state" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All issues</SelectItem>
+                          <SelectItem value="merged">Merged PR only</SelectItem>
+                          <SelectItem value="open">Open PR only</SelectItem>
+                          <SelectItem value="none">No linked PR</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1512,14 +1566,25 @@ export default function DashboardPage() {
                           </TableCell>
                           <TableCell>
                             {issue.linkedPR ? (
-                              <a
-                                href={issue.linkedPR}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline text-sm"
-                              >
-                                View PR
-                              </a>
+                              <div className="flex flex-col gap-0.5">
+                                <a
+                                  href={issue.linkedPR}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary hover:underline text-sm"
+                                >
+                                  View PR
+                                </a>
+                                {issue.prMerged === false ? (
+                                  <span className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                                    Open
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                    Merged
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-muted-foreground text-sm">—</span>
                             )}
@@ -1627,9 +1692,19 @@ export default function DashboardPage() {
                               Open Issue
                             </a>
                             {selectedIssue.linkedPR ? (
-                              <a className="text-primary hover:underline" href={selectedIssue.linkedPR} target="_blank" rel="noreferrer">
-                                Open PR
-                              </a>
+                              <span className="inline-flex flex-wrap items-center gap-2">
+                                <a
+                                  className="text-primary hover:underline"
+                                  href={selectedIssue.linkedPR}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open PR
+                                </a>
+                                <span className="text-xs text-muted-foreground">
+                                  ({selectedIssue.prMerged === false ? 'open' : 'merged'})
+                                </span>
+                              </span>
                             ) : (
                               <span className="text-muted-foreground">No PR linked</span>
                             )}
@@ -2009,7 +2084,19 @@ git checkout ${snapshotCommitHash}`}
                       <div className="flex flex-wrap gap-4 text-sm">
                         <a className="text-primary hover:underline" href={lookupIssue.url} target="_blank" rel="noreferrer">Open Issue</a>
                         {lookupIssue.linkedPR ? (
-                          <a className="text-primary hover:underline" href={lookupIssue.linkedPR} target="_blank" rel="noreferrer">Open PR</a>
+                          <span className="inline-flex flex-wrap items-center gap-2">
+                            <a
+                              className="text-primary hover:underline"
+                              href={lookupIssue.linkedPR}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open PR
+                            </a>
+                            <span className="text-xs text-muted-foreground">
+                              ({lookupIssue.prMerged === false ? 'open' : 'merged'})
+                            </span>
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">No PR linked</span>
                         )}

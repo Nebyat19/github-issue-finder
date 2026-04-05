@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
 
 async function getAdminUser(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -48,6 +49,17 @@ export async function PATCH(
       },
     });
 
+    void recordAudit({
+      userId: admin.id,
+      action: 'admin.api_key.update',
+      details: {
+        keyId,
+        tokenRotated: nextToken !== undefined,
+        isActive:
+          typeof isActive === 'boolean' ? isActive : existing.isActive,
+      },
+    });
+
     return NextResponse.json({ success: true, apiKey: updated }, { status: 200 });
   } catch (error) {
     console.error('Update API key error:', error);
@@ -70,6 +82,12 @@ export async function DELETE(
     if (!deleted) {
       return NextResponse.json({ error: 'API key not found' }, { status: 404 });
     }
+
+    void recordAudit({
+      userId: admin.id,
+      action: 'admin.api_key.delete',
+      details: { keyId: deleted.id },
+    });
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {

@@ -111,6 +111,16 @@ export async function POST(request: NextRequest) {
       ? await countChangedFiles(githubToken, ownerLc, repoLc, linkedResult.prUrl)
       : { total: 0, code: 0, docs: 0, additions: 0, deletions: 0 };
 
+    const prMerged =
+      Boolean(linkedResult) &&
+      (mergedPrReferenceMap.has(parsed.issueNumber) ||
+        (await isPullMerged(
+          githubToken,
+          ownerLc,
+          repoLc,
+          linkedResult!.prUrl
+        )));
+
     return NextResponse.json(
       {
         success: true,
@@ -125,6 +135,7 @@ export async function POST(request: NextRequest) {
           labels: issue.labels.map((label) => label.name),
           linkedPR: linkedResult?.prUrl,
           commitHash: linkedResult?.commitHash,
+          prMerged,
           filesChanged,
           owner: ownerLc,
           repo: repoLc,
@@ -137,6 +148,32 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Issue lookup error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+async function isPullMerged(
+  token: string,
+  owner: string,
+  repo: string,
+  prUrl: string
+): Promise<boolean> {
+  const prNumber = prUrl.split('/').pop()?.split('?')[0];
+  if (!prNumber) return false;
+  try {
+    const res = await fetch(
+      `${config.github.apiBaseUrl}/repos/${owner}/${repo}/pulls/${prNumber}`,
+      {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: config.github.acceptHeader,
+        },
+      }
+    );
+    if (!res.ok) return false;
+    const pr = (await res.json()) as { merged_at?: string | null };
+    return pr.merged_at != null && String(pr.merged_at).length > 0;
+  } catch {
+    return false;
   }
 }
 

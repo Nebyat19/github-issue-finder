@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { extractToken, verifyToken } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
 
 async function getAdminUser(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -78,6 +79,13 @@ export async function POST(request: NextRequest) {
       token: normalizedToken,
       isActive: true,
     });
+
+    void recordAudit({
+      userId: admin.id,
+      action: 'admin.api_key.create',
+      details: { keyId: key.id, targetUserId: targetUser.id },
+    });
+
     return NextResponse.json(
       {
         success: true,

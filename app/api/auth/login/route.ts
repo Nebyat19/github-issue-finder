@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, createToken } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,6 +49,12 @@ export async function POST(request: NextRequest) {
     }
 
     const token = createToken(user.id, user.email);
+
+    void recordAudit({
+      userId: user.id,
+      action: 'auth.login',
+      details: { email: user.email },
+    });
 
     return NextResponse.json(
       {
